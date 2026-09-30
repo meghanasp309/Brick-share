@@ -1,0 +1,84 @@
+# BrickShare private blockchain: 4 Hyperledger Besu nodes using QBFT.
+# Start:  docker compose up -d      Stop: docker compose down
+# Reset the chain (delete all blocks): docker compose down -v
+
+x-besu: &besu
+  image: hyperledger/besu:24.12.2
+  restart: unless-stopped
+  volumes:
+    - ./genesis.json:/config/genesis.json:ro
+  environment:
+    - BESU_GENESIS_FILE=/config/genesis.json
+    - BESU_NODE_PRIVATE_KEY_FILE=/config/key
+    - BESU_DATA_PATH=/opt/besu/data
+    - BESU_MIN_GAS_PRICE=0
+    - BESU_P2P_PORT=30303
+    - BESU_RPC_HTTP_ENABLED=true
+    - BESU_RPC_HTTP_HOST=0.0.0.0
+    - BESU_RPC_HTTP_PORT=8545
+    - BESU_RPC_HTTP_API=ETH,NET,WEB3,QBFT,ADMIN,TXPOOL
+    - BESU_RPC_HTTP_CORS_ORIGINS=*
+    - BESU_RPC_WS_ENABLED=true
+    - BESU_RPC_WS_HOST=0.0.0.0
+    - BESU_RPC_WS_PORT=8546
+    - BESU_HOST_ALLOWLIST=*
+    - BESU_BOOTNODES=enode://dbfa953461a04331cbf109bb3bb015f5305b73896305bb6582b15deca2a4fb45afe033e1fa56a998ec3d350b53abca8c06a16861a8961f1f18d50a3586afabb8@172.16.239.11:30303
+    - BESU_LOGGING=INFO
+
+services:
+  # Node 1: run by BrickShare. Your app talks to this one (http://localhost:8545).
+  brickshare-1:
+    <<: *besu
+    container_name: brickshare-1
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - ./nodes/brickshare-1/key:/config/key:ro
+      - brickshare-1-data:/opt/besu/data
+    ports: ["8545:8545", "8546:8546"]
+    networks: { besu: { ipv4_address: 172.16.239.11 } }
+
+  # Node 2: a second BrickShare server (backup).
+  brickshare-2:
+    <<: *besu
+    container_name: brickshare-2
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - ./nodes/brickshare-2/key:/config/key:ro
+      - brickshare-2-data:/opt/besu/data
+    ports: ["8555:8545"]
+    networks: { besu: { ipv4_address: 172.16.239.12 } }
+
+  # Node 3: run by a property company (developer / builder).
+  property-company:
+    <<: *besu
+    container_name: property-company
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - ./nodes/property-company/key:/config/key:ro
+      - property-company-data:/opt/besu/data
+    ports: ["8565:8545"]
+    networks: { besu: { ipv4_address: 172.16.239.13 } }
+
+  # Node 4: run by the Land Authority.
+  land-authority:
+    <<: *besu
+    container_name: land-authority
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - ./nodes/land-authority/key:/config/key:ro
+      - land-authority-data:/opt/besu/data
+    ports: ["8575:8545"]
+    networks: { besu: { ipv4_address: 172.16.239.14 } }
+
+networks:
+  besu:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.239.0/24
+
+volumes:
+  brickshare-1-data:
+  brickshare-2-data:
+  property-company-data:
+  land-authority-data:
