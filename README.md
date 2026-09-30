@@ -34,6 +34,49 @@ One contract = one property. One token = one share. It follows these rules:
 
 The contract itself checks these rules, so no app or person can skip them.
 
+## Quick start: the full demo in 5 steps
+
+Install **Docker Desktop** and **Node.js 22** first (links in step 1 below). Then, in PowerShell, inside your `brick-share` folder:
+
+```powershell
+# 1. Start the 4 blockchain nodes, the database and IPFS (one command)
+docker compose up -d
+
+# 2. Start the backend (keep this window open)
+cd backend
+npm install
+npm start
+```
+
+Open a **second** PowerShell window:
+
+```powershell
+# 3. Fill the app with demo data (people, 3 properties, trades, rent, a freeze)
+cd backend
+npm run demo-data
+
+# 4. Start the website (keep this window open)
+cd ..\frontend
+npm install
+npm run dev
+```
+
+5. Open http://localhost:3000 and log in with any of these:
+
+| Who | Email | Password |
+|---|---|---|
+| Owner (Priya) | owner@demo.test | demo1234 |
+| Investor (Alice) | alice@demo.test | demo1234 |
+| Investor (Bob) | bob@demo.test | demo1234 |
+| Admin | admin@brickshare.test | admin123 |
+| Land Authority | land@brickshare.test | land123 |
+
+**What to show, and what to say:** see [DEMO.md](DEMO.md). It is a 5-minute walk-through.
+
+**Start over:** stop the backend (Ctrl+C), run `docker compose down -v` in the `brick-share` folder, then do the steps again.
+
+The steps below explain each part on its own, in more detail.
+
 ## How to run it on your laptop (Windows)
 
 ### 1. Install these once
@@ -162,6 +205,9 @@ If the backend runs somewhere else, copy `frontend/.env.example` to `frontend/.e
 - **Rent stays "paid" and isn't shared out**: the property is probably frozen. It is shared out by itself when the Land Authority unfreezes it. Or call `POST /rent/:id/retry`.
 - **Website says "Can't reach the server"**: start the backend (step 7). The footer dot turns green when it works.
 - **Port 3000 already in use**: run `npx next dev -p 3001` instead, and open http://localhost:3001.
+- **"container name is already in use"**: you started some parts before from `network` or `backend`. Stop them there first (`docker compose down` inside each folder), then run `docker compose up -d` again.
+- **Demo data says "already there"**: it only runs on a fresh database. To start over, see "Start over" in the Quick start.
+- **An order stays "paid"** (the server stopped while sending the shares): just start the backend again. It finishes stuck orders by itself. An admin can also press "Try again" on the Admin page.
 - **You reset the blockchain** (`down -v`) but not the database: old properties point to contracts that no longer exist. Reset the database too: `cd backend` then `docker compose down -v` and `docker compose up -d`.
 
 ## The backend, in simple words
@@ -187,6 +233,8 @@ The backend is the middle part between the app and the blockchain.
 4. If the blockchain refuses (for example, the property got frozen), the order becomes `failed`. You already paid, so your shares stay held. Try again later with `POST /orders/:id/retry`.
 
 **No Razorpay account? No problem.** Without keys the server uses fake payments ("mock" mode). Skip step 2 and call `POST /orders/:id/mock-pay` instead of `verify`.
+
+**Safe if the app closes.** If the server stops while sending the shares, the order waits as `paid`. When the server starts again, it checks the blockchain first (so shares never move twice) and then finishes the order. Orders that failed because of a freeze go through by themselves when the property is unfrozen.
 
 **Want real Razorpay test mode?** Sign up at https://dashboard.razorpay.com, switch to **Test Mode**, and create API keys. Put them in `backend/.env` as `RAZORPAY_KEY_ID` (starts with `rzp_test_`) and `RAZORPAY_KEY_SECRET`. The server refuses live keys, so no real money can move. The payment screen itself (Razorpay Checkout) comes with the frontend.
 
@@ -264,6 +312,18 @@ socket.on("wallet", (w) => {});            // your balance changed (needs token)
 socket.on("rent", (r) => {});              // you received rent (needs token)
 ```
 
+### Razorpay webhooks (optional)
+
+Sometimes an investor pays, but closes the browser before the app can tell our server. A **webhook** fixes that: Razorpay calls our server directly to say "this payment went through". It works for share orders, wallet deposits and rent.
+
+1. In the Razorpay dashboard (Test Mode), go to **Webhooks** and add one:
+   - URL: `https://<your server>/payments/webhook` (Razorpay can't reach `localhost`, so use a tunnel like `ngrok http 4000` for testing)
+   - Secret: any long random text
+   - Events: `payment.captured` and `order.paid`
+2. Put the same secret in `backend/.env` as `RAZORPAY_WEBHOOK_SECRET`.
+
+Razorpay signs every webhook with that secret, so nobody else can fake one. If both the app and the webhook report the same payment, it still counts only once.
+
 ## Rent payouts, in simple words
 
 1. The owner (or an admin) pays the month's rent for a property, say ₹1,00,000, with Razorpay (test mode).
@@ -333,7 +393,7 @@ Send the login token as a header: `Authorization: Bearer <token>`.
 | GET | `/orders/:id` | buyer, admin | One order |
 | POST | `/orders/:id/verify` | buyer | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }`, then shares are sent |
 | POST | `/orders/:id/mock-pay` | buyer | Fake payment (only when no Razorpay keys are set) |
-| POST | `/orders/:id/retry` | buyer, admin | Send the shares again for a `failed` order |
+| POST | `/orders/:id/retry` | buyer, admin | Send the shares again for a `failed` order, or one stuck in `paid` |
 | GET | `/admin/orders?status=failed` | admin | All orders, optionally by status |
 | GET | `/portfolio` | logged in | Your shares, their value and what you paid |
 | GET | `/transactions` | logged in | Every share movement in or out of your wallet (from the chain) |
@@ -366,6 +426,8 @@ Send the login token as a header: `Authorization: Bearer <token>`.
 | GET | `/properties/:id/documents` | anyone | The property's papers, each checked against the chain |
 | POST | `/properties/:id/documents` | the property's owner, admin, land authority | Form: `kind` (sale-deed, title-report, tax-receipt, rent-agreement, valuation, photo, other) and file `document` |
 | GET | `/properties/:id/documents/:docId/file` | anyone | Download a paper from IPFS |
+| POST | `/payments/webhook` | Razorpay | Razorpay says a payment went through (signed). See "Razorpay webhooks" |
+| GET | `/network` | anyone | Each of the 4 blockchain nodes: online, latest block, peers |
 
 If you change the contract, copy the new version into the backend: `cd contracts`, then `npm run compile` and `npm run export-abi`.
 
@@ -384,10 +446,19 @@ Each person sees the screens for their role:
 | My properties | owner | List a property, pay rent, add papers |
 | Admin | admin | Approve IDs, all users, retry stuck payments |
 | Land Authority | land authority | Approve properties, freeze and unfreeze |
+| Network (`/network`) | everyone | The 4 blockchain nodes live: are they online, and do they agree on the latest block? |
 
 - The login token is kept in your browser, so you stay logged in.
 - Payments open Razorpay Checkout when the backend has test keys. Without keys, they use fake payments.
 - Live updates come from the backend with Socket.io.
+
+## Automatic checks (CI)
+
+Every pull request on GitHub runs these checks by itself:
+
+- **Contracts**: the 13 smart contract tests.
+- **Backend**: starts the real blockchain, database and IPFS with Docker, then runs every backend test.
+- **Frontend**: lint and build the website.
 
 ## Test accounts
 

@@ -143,8 +143,9 @@ test("paid but the property got frozen: the order fails, and a retry works after
   assert.strictEqual(detail.body.sharesForSale, 880);
 
   await api().post(`/orders/${order.id}/retry`).set(auth(alice.token)).expect(200); // still frozen: fails again
+  // Unfreezing sends the shares by itself: no retry needed.
   await api().post(`/properties/${property.id}/unfreeze`).set(auth(laToken)).expect(200);
-  const retried = await api().post(`/orders/${order.id}/retry`).set(auth(adminToken)).expect(200);
+  const retried = await api().get(`/orders/${order.id}`).set(auth(adminToken)).expect(200);
   assert.strictEqual(retried.body.order.status, "completed");
   assert.strictEqual(retried.body.order.failureReason, null);
   await api().post(`/orders/${order.id}/retry`).set(auth(alice.token)).expect(409);
@@ -155,21 +156,51 @@ test("paid but the property got frozen: the order fails, and a retry works after
   assert.strictEqual(detail.body.sharesForSale, 880);
 });
 
+test("an order stuck in 'paid' (server crashed) is finished on restart, and never sent twice", async () => {
+  const { resumeDeliveries } = require("../src/routes/orders");
+
+  // Crash before the shares were sent: the order is paid, with no transaction yet.
+  const { order } = (await buy(alice.token, 5).expect(201)).body;
+  await db.query("UPDATE orders SET status = 'paid', razorpay_payment_id = 'pay_crash1', paid_at = now() WHERE id = $1", [order.id]);
+  assert.strictEqual(await resumeDeliveries(), 1);
+  const done = (await api().get(`/orders/${order.id}`).set(auth(alice.token)).expect(200)).body.order;
+  assert.strictEqual(done.status, "completed");
+  assert.strictEqual(await chain.balanceOf(property.contractAddress, alice.user.walletAddress), 125);
+
+  // Crash after the shares were sent but before we saved "completed":
+  // the saved transaction is checked, and no second transfer is made.
+  await db.query("UPDATE orders SET status = 'paid', completed_at = NULL WHERE id = $1", [order.id]);
+  assert.strictEqual(await resumeDeliveries(), 1);
+  const again = (await api().get(`/orders/${order.id}`).set(auth(alice.token)).expect(200)).body.order;
+  assert.strictEqual(again.status, "completed");
+  assert.strictEqual(again.transaction, done.transaction);
+  assert.strictEqual(await chain.balanceOf(property.contractAddress, alice.user.walletAddress), 125);
+
+  // A stuck order can also be pushed through by hand.
+  const { order: o2 } = (await buy(alice.token, 5).expect(201)).body;
+  await db.query("UPDATE orders SET status = 'paid', razorpay_payment_id = 'pay_crash2', paid_at = now() WHERE id = $1", [o2.id]);
+  const pushed = await api().post(`/orders/${o2.id}/retry`).set(auth(adminToken)).expect(200);
+  assert.strictEqual(pushed.body.order.status, "completed");
+  assert.strictEqual(await chain.balanceOf(property.contractAddress, alice.user.walletAddress), 130);
+});
+
 test("portfolio and transaction history", async () => {
   const mine = await api().get("/orders").set(auth(alice.token)).expect(200);
-  assert.strictEqual(mine.body.orders.filter((o) => o.status === "completed").length, 2);
+  assert.strictEqual(mine.body.orders.filter((o) => o.status === "completed").length, 4);
 
   const portfolio = await api().get("/portfolio").set(auth(alice.token)).expect(200);
   assert.strictEqual(portfolio.body.holdings.length, 1);
   const h = portfolio.body.holdings[0];
-  assert.strictEqual(h.shares, 120);
-  assert.strictEqual(h.ownership, 12);
-  assert.strictEqual(h.value, 30060); // 120 x ₹250.50
-  assert.strictEqual(h.invested, 30060);
-  assert.deepStrictEqual(portfolio.body.totals, { properties: 1, value: 30060, invested: 30060, rentEarned: 0 });
+  assert.strictEqual(h.shares, 130);
+  assert.strictEqual(h.ownership, 13);
+  assert.strictEqual(h.value, 32565); // 130 x ₹250.50
+  assert.strictEqual(h.invested, 32565);
+  assert.deepStrictEqual(portfolio.body.totals, { properties: 1, value: 32565, invested: 32565, rentEarned: 0 });
 
   const history = await api().get("/transactions").set(auth(alice.token)).expect(200);
   assert.deepStrictEqual(history.body.transactions.map((t) => [t.type, t.shares, t.amount]), [
+    ["buy", 5, 1252.5],
+    ["buy", 5, 1252.5],
     ["buy", 20, 5010],
     ["buy", 100, 25050],
   ]);
@@ -177,10 +208,10 @@ test("portfolio and transaction history", async () => {
   // The owner sees the shares they were issued and the ones they sold.
   const ownerHistory = await api().get("/transactions").set(auth(owner.token)).expect(200);
   assert.deepStrictEqual(ownerHistory.body.transactions.map((t) => [t.type, t.shares]), [
-    ["sell", 20], ["sell", 100], ["issued", 1000],
+    ["sell", 5], ["sell", 5], ["sell", 20], ["sell", 100], ["issued", 1000],
   ]);
   const ownerPortfolio = await api().get("/portfolio").set(auth(owner.token)).expect(200);
-  assert.strictEqual(ownerPortfolio.body.holdings[0].shares, 880);
+  assert.strictEqual(ownerPortfolio.body.holdings[0].shares, 870);
 
   const empty = await api().get("/portfolio").set(auth(bob.token)).expect(200);
   assert.deepStrictEqual(empty.body.holdings, []);

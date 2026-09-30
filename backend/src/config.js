@@ -31,9 +31,24 @@ const config = {
   razorpay: {
     keyId: env("RAZORPAY_KEY_ID", ""),
     keySecret: env("RAZORPAY_KEY_SECRET", ""),
+    // Secret you choose when adding a webhook in the Razorpay dashboard.
+    // Leave empty to turn webhooks off.
+    webhookSecret: env("RAZORPAY_WEBHOOK_SECRET", ""),
   },
   // How long an unpaid order keeps its shares reserved.
   orderMinutes: Number(env("ORDER_MINUTES", 15)),
+  // The 4 blockchain nodes, shown on the "Network" page. name=url, comma separated.
+  nodes: env(
+    "BESU_NODES",
+    "BrickShare 1=http://127.0.0.1:8545,BrickShare 2=http://127.0.0.1:8555," +
+      "Property company=http://127.0.0.1:8565,Land Authority=http://127.0.0.1:8575"
+  )
+    .split(",")
+    .map((pair) => {
+      const [name, url] = pair.split("=");
+      return { name: name.trim(), url: (url || "").trim() };
+    })
+    .filter((n) => n.url),
 };
 
 if (config.razorpay.keyId && !config.razorpay.keyId.startsWith("rzp_test_")) {

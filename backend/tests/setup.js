@@ -9,6 +9,7 @@ process.env.DATABASE_URL = testUrl.toString();
 // Always use fake payments in tests, even if your .env has Razorpay keys.
 process.env.RAZORPAY_KEY_ID = "";
 process.env.RAZORPAY_KEY_SECRET = "";
+process.env.RAZORPAY_WEBHOOK_SECRET = "test-webhook-secret";
 process.env.UPLOAD_DIR = require("path").join(require("os").tmpdir(), "brickshare-test-uploads");
 
 async function resetDatabase() {

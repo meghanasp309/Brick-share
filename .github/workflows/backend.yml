@@ -1,0 +1,47 @@
+name: Backend
+
+# Runs the backend tests against the real thing: the 4-node Besu blockchain,
+# PostgreSQL and IPFS, all started with Docker like on your laptop.
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**", "network/**", "docker-compose.yml", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["backend/**", "network/**", "docker-compose.yml", ".github/workflows/backend.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Start the blockchain, database and IPFS
+        working-directory: .
+        run: docker compose up -d
+      - run: npm ci
+      - name: Wait until the blockchain makes blocks and IPFS is up
+        run: |
+          for i in $(seq 1 60); do
+            block=$(curl -s -X POST -H 'Content-Type: application/json' \
+              --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://127.0.0.1:8545 \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(Number(JSON.parse(s).result))}catch{console.log(0)}})')
+            ipfs=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5001/api/v0/id || true)
+            echo "block $block, ipfs $ipfs"
+            if [ "$block" -gt 2 ] && [ "$ipfs" = "200" ]; then exit 0; fi
+            sleep 3
+          done
+          docker compose logs --tail 50
+          exit 1
+      - run: npm test
+      - name: Show container logs if something failed
+        if: failure()
+        working-directory: .
+        run: docker compose logs --tail 100

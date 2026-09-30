@@ -6,11 +6,11 @@ import { useAuth } from "@/lib/auth";
 
 // Which links each role sees.
 const LINKS = {
-  guest: [["/", "Market"]],
-  investor: [["/", "Market"], ["/portfolio", "Portfolio"], ["/wallet", "Wallet"], ["/kyc", "KYC"]],
-  owner: [["/", "Market"], ["/owner", "My properties"], ["/portfolio", "Portfolio"], ["/wallet", "Wallet"], ["/kyc", "KYC"]],
-  admin: [["/", "Market"], ["/admin", "Admin"]],
-  land_authority: [["/", "Market"], ["/land", "Land Authority"]],
+  guest: [["/", "Market"], ["/network", "Network"]],
+  investor: [["/", "Market"], ["/portfolio", "Portfolio"], ["/wallet", "Wallet"], ["/kyc", "KYC"], ["/network", "Network"]],
+  owner: [["/", "Market"], ["/owner", "My properties"], ["/portfolio", "Portfolio"], ["/wallet", "Wallet"], ["/kyc", "KYC"], ["/network", "Network"]],
+  admin: [["/", "Market"], ["/admin", "Admin"], ["/network", "Network"]],
+  land_authority: [["/", "Market"], ["/land", "Land Authority"], ["/network", "Network"]],
 };
 
 const roleLabel = { investor: "Investor", owner: "Owner", admin: "Admin", land_authority: "Land Authority" };
