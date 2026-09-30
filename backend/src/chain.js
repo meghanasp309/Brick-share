@@ -51,7 +51,10 @@ async function send(signer, address, fn, ...args) {
   return receipt.hash;
 }
 
-/** Deploys a new PropertyToken contract (the property starts as Pending). */
+/**
+ * Deploys a new PropertyToken contract (the property starts as Pending).
+ * Returns its address and the block it was deployed in.
+ */
 async function deployProperty({ name, symbol, propertyId, documentHash, totalShares, owner, landAuthority }) {
   const signer = platform();
   const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, signer);
@@ -60,8 +63,8 @@ async function deployProperty({ name, symbol, propertyId, documentHash, totalSha
       name, symbol, propertyId, documentHash, totalShares,
       owner, await signer.getAddress(), landAuthority, TX
     );
-    await contract.waitForDeployment();
-    return contract.getAddress();
+    const receipt = await contract.deploymentTransaction().wait();
+    return { address: await contract.getAddress(), block: receipt.blockNumber };
   } catch (err) {
     signer.reset();
     throw err;
@@ -120,15 +123,30 @@ async function balanceOf(contractAddress, address) {
   return Number(await token(contractAddress).balanceOf(address));
 }
 
+// Besu answers a search for past events over at most 5000 blocks at a time
+// (a new block every 2 seconds is about 3 hours), so longer searches go in steps.
+const LOGS_RANGE = 5000;
+
+/** Events matching `filter` from `fromBlock` up to now, oldest first. */
+async function eventsSince(t, filter, fromBlock = 0) {
+  const latest = await provider.getBlockNumber();
+  const events = [];
+  for (let start = fromBlock; start <= latest; start += LOGS_RANGE) {
+    events.push(...(await t.queryFilter(filter, start, Math.min(start + LOGS_RANGE - 1, latest))));
+  }
+  return events;
+}
+
 /**
  * Every share movement into or out of `address` on one property, read from
- * the chain's Transfer events. Oldest first.
+ * the chain's Transfer events. Oldest first. `fromBlock` is the block the
+ * contract was deployed in (0 if we don't know it).
  */
-async function transfersOf(contractAddress, address) {
+async function transfersOf(contractAddress, address, fromBlock = 0) {
   const t = token(contractAddress);
   const [incoming, outgoing] = await Promise.all([
-    t.queryFilter(t.filters.Transfer(null, address), 0),
-    t.queryFilter(t.filters.Transfer(address, null), 0),
+    eventsSince(t, t.filters.Transfer(null, address), fromBlock),
+    eventsSince(t, t.filters.Transfer(address, null), fromBlock),
   ]);
   const events = [...incoming, ...outgoing];
   const blocks = new Map();
@@ -185,9 +203,9 @@ const rentOwed = async (contractAddress, payoutId, account) =>
   Number(await token(contractAddress).rentOwed(payoutId, account));
 
 /** Every wallet that has ever received shares of this property. */
-async function everHolders(contractAddress) {
+async function everHolders(contractAddress, fromBlock = 0) {
   const t = token(contractAddress);
-  const events = await t.queryFilter(t.filters.Transfer(), 0);
+  const events = await eventsSince(t, t.filters.Transfer(), fromBlock);
   return [...new Set(events.map((e) => e.args.to))];
 }
 

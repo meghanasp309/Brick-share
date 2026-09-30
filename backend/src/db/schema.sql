@@ -215,3 +215,7 @@ CREATE TABLE IF NOT EXISTS property_documents (
 );
 
 CREATE INDEX IF NOT EXISTS property_documents_property_idx ON property_documents (property_id, id);
+
+-- The block each property's contract was deployed in, so searches for its
+-- past events start there. NULL for properties listed before this was added.
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS deploy_block INTEGER;
