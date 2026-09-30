@@ -1,0 +1,22 @@
+# BrickShare database (PostgreSQL).
+# Start:  docker compose up -d      Stop: docker compose stop
+# Delete all data and start fresh: docker compose down -v
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: brickshare-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brickshare
+      POSTGRES_PASSWORD: brickshare
+      POSTGRES_DB: brickshare
+    ports: ["5432:5432"]
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brickshare"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  db-data:
