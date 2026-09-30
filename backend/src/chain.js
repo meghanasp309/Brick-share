@@ -149,6 +149,72 @@ async function transfersOf(contractAddress, address) {
 
 const isWhitelisted = (contractAddress, address) => token(contractAddress).isWhitelisted(address);
 
+// ---------- Rent ----------
+
+/** True if the property's contract can pay rent and keep documents (ones listed before phase 5 can't). */
+async function hasPhase5Features(contractAddress) {
+  try {
+    await token(contractAddress).payoutCount();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Records a rent payout on the chain (BrickShare signs it). Calls
+ * `onSent(hash)` as soon as it is sent, then waits for the block.
+ */
+async function distributeRentTracked(contractAddress, amountPaise, ref, onSent) {
+  const tx = await submit(platform(), contractAddress, "distributeRent", amountPaise, ref);
+  await onSent(tx.hash);
+  const receipt = await tx.wait();
+  return receipt.hash;
+}
+
+/** The contract's payout number for our reference, or 0 if it wasn't recorded. */
+const payoutIdByRef = async (contractAddress, ref) => Number(await token(contractAddress).payoutIdByRef(ref));
+
+async function rentPayout(contractAddress, payoutId) {
+  const p = await token(contractAddress).payout(payoutId);
+  return { amountPaise: Number(p.amountPaise), snapshotId: Number(p.snapshotId), ref: p.ref };
+}
+
+/** Paise of a payout that belong to `account` (worked out by the contract). */
+const rentOwed = async (contractAddress, payoutId, account) =>
+  Number(await token(contractAddress).rentOwed(payoutId, account));
+
+/** Every wallet that has ever received shares of this property. */
+async function everHolders(contractAddress) {
+  const t = token(contractAddress);
+  const events = await t.queryFilter(t.filters.Transfer(), 0);
+  return [...new Set(events.map((e) => e.args.to))];
+}
+
+// ---------- Documents ----------
+
+/** Saves a document's IPFS CID in the contract. Returns { hash, index }. */
+async function addDocument(contractAddress, cid, kind) {
+  const tx = await submit(platform(), contractAddress, "addDocument", cid, kind);
+  const receipt = await tx.wait();
+  const event = receipt.logs.map((l) => iface.parseLog(l)).find((e) => e?.name === "DocumentAdded");
+  return { hash: receipt.hash, index: Number(event.args.index) };
+}
+
+/** The contract's copy of the listing papers' hash, and of every added document's CID. */
+async function documentsOnChain(contractAddress) {
+  const t = token(contractAddress);
+  const documentHash = await t.documentHash();
+  let count = 0;
+  try {
+    count = Number(await t.documentCount());
+  } catch {
+    // Listed before phase 5: the contract has no document list.
+  }
+  const docs = await Promise.all(Array.from({ length: count }, (_, i) => t.document(i)));
+  return { documentHash, cids: docs.map((d) => d.cid) };
+}
+
 async function networkInfo() {
   const [network, blockNumber] = await Promise.all([provider.getNetwork(), provider.getBlockNumber()]);
   return { chainId: Number(network.chainId), blockNumber };
@@ -158,4 +224,6 @@ module.exports = {
   provider, platform, userSigner, deployProperty, addToWhitelist,
   approveProperty, freeze, unfreeze, readProperty, isWhitelisted, networkInfo,
   transferShares, transferSharesTracked, transactionOutcome, balanceOf, transfersOf,
+  hasPhase5Features, distributeRentTracked, payoutIdByRef, rentPayout, rentOwed, everHolders,
+  addDocument, documentsOnChain,
 };

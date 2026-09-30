@@ -1,6 +1,6 @@
 // The in-app rupee wallet (test money only).
 //
-//  balance   = all money in (deposits, sales) minus all money out
+//  balance   = all money in (deposits, sales, rent) minus all money out
 //  held      = money promised to open buy orders and to trades that are
 //              still moving on the chain
 //  available = balance - held   (what you can spend or withdraw now)
@@ -41,10 +41,11 @@ async function availablePaise(client, userId) {
 }
 
 /** Adds (+) or removes (-) money and records why. Needs the row locked. */
-async function addEntry(client, userId, kind, amountPaise, { depositId = null, tradeId = null } = {}) {
+async function addEntry(client, userId, kind, amountPaise, { depositId = null, tradeId = null, rentPayoutId = null } = {}) {
   await client.query(
-    "INSERT INTO cash_entries (user_id, kind, amount_paise, deposit_id, trade_id) VALUES ($1, $2, $3, $4, $5)",
-    [userId, kind, amountPaise, depositId, tradeId]
+    `INSERT INTO cash_entries (user_id, kind, amount_paise, deposit_id, trade_id, rent_payout_id)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [userId, kind, amountPaise, depositId, tradeId, rentPayoutId]
   );
   await client.query("UPDATE cash_accounts SET balance_paise = balance_paise + $2 WHERE user_id = $1", [userId, amountPaise]);
 }

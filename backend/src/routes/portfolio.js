@@ -14,6 +14,7 @@ const rupees = (n) => Math.round(n * 100) / 100;
 // What you own right now, and what it's worth at the market price
 // (the last trade on the order book, or the listing price if there's none).
 // "invested" = what you paid for shares minus what you got for selling them.
+// "rentEarned" = rent paid into your wallet for this property.
 router.get("/portfolio", requireAuth, async (req, res) => {
   const wallet = req.user.wallet_address;
   const { rows: props } = await db.query(
@@ -21,7 +22,10 @@ router.get("/portfolio", requireAuth, async (req, res) => {
        (SELECT COALESCE(SUM(amount_paise), 0) FROM orders
          WHERE property_id = p.id AND user_id = $1 AND status = 'completed')
      + (SELECT COALESCE(SUM(CASE WHEN buyer_id = $1 THEN amount_paise ELSE -amount_paise END), 0) FROM trades
-         WHERE property_id = p.id AND status = 'settled' AND (buyer_id = $1 OR seller_id = $1)) AS invested_paise
+         WHERE property_id = p.id AND status = 'settled' AND (buyer_id = $1 OR seller_id = $1)) AS invested_paise,
+       (SELECT COALESCE(SUM(e.amount_paise), 0) FROM cash_entries e
+         JOIN rent_payouts r ON r.id = e.rent_payout_id
+         WHERE e.user_id = $1 AND e.kind = 'rent' AND r.property_id = p.id) AS rent_paise
      FROM properties p
      WHERE p.status = 'approved'
      ORDER BY p.id`,
@@ -43,16 +47,22 @@ router.get("/portfolio", requireAuth, async (req, res) => {
         pricePerShare: price,
         value: rupees(shares * price),
         invested: Number(p.invested_paise) / 100,
+        rentEarned: Number(p.rent_paise) / 100, // all rent received for this property
       };
     })
     .filter((h) => h.shares > 0);
 
   const totalValue = rupees(holdings.reduce((sum, h) => sum + h.value, 0));
   const totalInvested = rupees(holdings.reduce((sum, h) => sum + h.invested, 0));
+  const { rows: rentRows } = await db.query(
+    "SELECT COALESCE(SUM(amount_paise), 0) AS paise FROM cash_entries WHERE user_id = $1 AND kind = 'rent'",
+    [req.user.id]
+  );
   res.json({
     walletAddress: wallet,
     holdings,
-    totals: { properties: holdings.length, value: totalValue, invested: totalInvested },
+    // rentEarned counts all rent ever received, also from properties you have since sold.
+    totals: { properties: holdings.length, value: totalValue, invested: totalInvested, rentEarned: Number(rentRows[0].paise) / 100 },
   });
 });
 

@@ -41,6 +41,12 @@ async function main() {
   await wait(token.connect(investor1).transfer(owner.address, 10));
   console.log("   Investor has", (await token.balanceOf(investor1.address)).toString(), "shares");
 
+  console.log("7. BrickShare pays this month's rent: Rs 10,000 (1,000,000 paise)...");
+  await wait(token.connect(platform).distributeRent(1_000_000, "demo-rent-" + Date.now()));
+  const payoutId = await token.payoutCount();
+  console.log("   Investor gets", (await token.rentOwed(payoutId, investor1.address)).toString(), "paise (they hold 0.4%)");
+  console.log("   Owner gets", (await token.rentOwed(payoutId, owner.address)).toString(), "paise");
+
   console.log("\nDone! Every node (BrickShare, property company, Land Authority) now has this history.");
 }
 

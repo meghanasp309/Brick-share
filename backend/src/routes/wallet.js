@@ -1,6 +1,6 @@
 // The rupee wallet: add money with Razorpay (test mode), see your balance,
 // and withdraw to your bank (simulated). Buying on the order book spends
-// from this wallet, and selling pays into it.
+// from this wallet, and selling and rent pay into it.
 const express = require("express");
 const db = require("../db");
 const cash = require("../cash");
@@ -65,10 +65,11 @@ async function confirmDeposit(deposit, proof) {
 // Your balance and your last 50 money movements.
 router.get("/wallet", requireAuth, async (req, res) => {
   const { rows } = await db.query(
-    `SELECT e.*, t.property_id, t.shares, p.name AS property_name
+    `SELECT e.*, COALESCE(t.property_id, r.property_id) AS property_id, t.shares, p.name AS property_name
      FROM cash_entries e
      LEFT JOIN trades t ON t.id = e.trade_id
-     LEFT JOIN properties p ON p.id = t.property_id
+     LEFT JOIN rent_payouts r ON r.id = e.rent_payout_id
+     LEFT JOIN properties p ON p.id = COALESCE(t.property_id, r.property_id)
      WHERE e.user_id = $1 ORDER BY e.id DESC LIMIT 50`,
     [req.user.id]
   );
@@ -80,6 +81,7 @@ router.get("/wallet", requireAuth, async (req, res) => {
       amount: Number(e.amount_paise) / 100,
       depositId: e.deposit_id,
       tradeId: e.trade_id,
+      rentPayoutId: e.rent_payout_id,
       property: e.property_id ? { id: e.property_id, name: e.property_name } : null,
       shares: e.shares ?? null,
       createdAt: e.created_at,
@@ -130,7 +132,8 @@ router.post("/wallet/deposits/:id/mock-pay", requireAuth, async (req, res) => {
 });
 
 // Body: { amount } in rupees. Sends money back to your bank (simulated: test mode).
-router.post("/wallet/withdraw", requireAuth, requireRole("investor"), async (req, res) => {
+// Owners can withdraw too, because they receive rent for the shares they still hold.
+router.post("/wallet/withdraw", requireAuth, requireRole("investor", "owner"), async (req, res) => {
   const amountPaise = v.rupees(req.body || {}, "amount", { max: MAX_PAISE });
   await cash.inTransaction(async (client) => {
     await cash.lockBalance(client, req.user.id);

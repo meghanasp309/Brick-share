@@ -22,6 +22,10 @@ const config = {
     password: env("LAND_AUTHORITY_PASSWORD", "land123"),
   },
   uploadDir: env("UPLOAD_DIR", "uploads"),
+  // Our IPFS node (started with docker compose in this folder). Property papers
+  // are stored there. The API port is private; the gateway lets anyone view files.
+  ipfsApiUrl: env("IPFS_API_URL", "http://127.0.0.1:5001"),
+  ipfsGatewayUrl: env("IPFS_GATEWAY_URL", "http://127.0.0.1:8080"),
   // Razorpay TEST keys (start with "rzp_test_"). Leave empty to use the
   // built-in fake payments ("mock" mode), which need no account.
   razorpay: {

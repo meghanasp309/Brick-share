@@ -20,6 +20,13 @@ describe("PropertyToken", function () {
     );
   });
 
+  it("pending properties pay no rent", async function () {
+    await expect(token.connect(platform).distributeRent(100n, "rent-1")).to.be.revertedWithCustomError(
+      token,
+      "NotApproved"
+    );
+  });
+
   it("starts pending, with no shares", async function () {
     expect(await token.status()).to.equal(0); // Pending
     expect(await token.totalSupply()).to.equal(0n);
@@ -98,6 +105,74 @@ describe("PropertyToken", function () {
       );
       await token.connect(landAuthority).freeze("x");
       await expect(token.connect(platform).unfreeze()).to.be.revertedWithCustomError(
+        token,
+        "AccessControlUnauthorizedAccount"
+      );
+    });
+
+    describe("rent payouts", function () {
+      beforeEach(async function () {
+        await token.connect(platform).addToWhitelist(alice.address);
+        await token.connect(platform).addToWhitelist(bob.address);
+        await token.connect(owner).transfer(alice.address, 2_000); // 20%
+        await token.connect(owner).transfer(bob.address, 500); // 5%
+      });
+
+      it("splits rent by the shares held at the moment it is paid", async function () {
+        await expect(token.connect(platform).distributeRent(1_00_000_00n, "rent-1")) // ₹1,00,000
+          .to.emit(token, "RentDistributed")
+          .withArgs(1n, 1n, 1_00_000_00n, "rent-1");
+
+        // Moving shares after the payout does not change who gets it.
+        await token.connect(alice).transfer(bob.address, 1_000);
+        expect(await token.rentOwed(1, alice.address)).to.equal(20_000_00n);
+        expect(await token.rentOwed(1, bob.address)).to.equal(5_000_00n);
+        expect(await token.rentOwed(1, owner.address)).to.equal(75_000_00n);
+
+        // The next payout sees the new balances.
+        await token.connect(platform).distributeRent(1_000_00n, "rent-2");
+        expect(await token.rentOwed(2, alice.address)).to.equal(100_00n);
+        expect(await token.rentOwed(2, bob.address)).to.equal(150_00n);
+        expect(await token.balanceOfAt(alice.address, 1)).to.equal(2_000n);
+        expect(await token.balanceOfAt(alice.address, 2)).to.equal(1_000n);
+        expect(await token.payoutCount()).to.equal(2n);
+        expect((await token.payout(2)).ref).to.equal("rent-2");
+        expect(await token.payoutIdByRef("rent-2")).to.equal(2n);
+      });
+
+      it("never pays the same rent twice, and only BrickShare can pay", async function () {
+        await token.connect(platform).distributeRent(100n, "rent-1");
+        await expect(token.connect(platform).distributeRent(100n, "rent-1"))
+          .to.be.revertedWithCustomError(token, "DuplicatePayout")
+          .withArgs("rent-1");
+        await expect(token.connect(owner).distributeRent(100n, "rent-2")).to.be.revertedWithCustomError(
+          token,
+          "AccessControlUnauthorizedAccount"
+        );
+        await expect(token.connect(platform).distributeRent(0n, "rent-3")).to.be.revertedWithCustomError(
+          token,
+          "ZeroAmount"
+        );
+        await expect(token.rentOwed(9, alice.address)).to.be.revertedWithCustomError(token, "UnknownPayout");
+      });
+
+      it("a frozen property pays no rent", async function () {
+        await token.connect(landAuthority).freeze("Legal dispute");
+        await expect(token.connect(platform).distributeRent(100n, "rent-1"))
+          .to.be.revertedWithCustomError(token, "PropertyFrozen")
+          .withArgs("Legal dispute");
+        await token.connect(landAuthority).unfreeze();
+        await token.connect(platform).distributeRent(100n, "rent-1");
+      });
+    });
+
+    it("keeps IPFS fingerprints of property papers", async function () {
+      await expect(token.connect(platform).addDocument("bafy-deed", "sale-deed"))
+        .to.emit(token, "DocumentAdded")
+        .withArgs(0n, "bafy-deed", "sale-deed");
+      expect(await token.documentCount()).to.equal(1n);
+      expect((await token.document(0)).cid).to.equal("bafy-deed");
+      await expect(token.connect(owner).addDocument("x", "y")).to.be.revertedWithCustomError(
         token,
         "AccessControlUnauthorizedAccount"
       );

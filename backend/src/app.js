@@ -10,6 +10,8 @@ const { router: orderRoutes } = require("./routes/orders");
 const portfolioRoutes = require("./routes/portfolio");
 const { router: walletRoutes } = require("./routes/wallet");
 const tradingRoutes = require("./routes/trading");
+const rentRoutes = require("./routes/rent");
+const { router: documentRoutes } = require("./routes/documents");
 
 function createApp() {
   const app = express();
@@ -38,6 +40,8 @@ function createApp() {
   app.use(portfolioRoutes);
   app.use(walletRoutes);
   app.use(tradingRoutes);
+  app.use(rentRoutes);
+  app.use(documentRoutes);
 
   app.use((_req, res) => res.status(404).json({ error: "Not found" }));
   app.use(errorHandler);
