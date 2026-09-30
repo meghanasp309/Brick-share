@@ -1,5 +1,5 @@
 "use client";
-// For property owners: list a property, pay rent, and add papers.
+// For property owners: list a property, set its monthly rent, and add papers.
 import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/lib/api";
@@ -23,8 +23,10 @@ export default function OwnerPage() {
 function Owner() {
   const { user } = useAuth();
   const { data, error, loading, reload } = useLoad(async () => {
-    const [{ properties }, { payouts }] = await Promise.all([api("/properties"), api("/rent")]);
-    return { properties: properties.filter((p) => p.owner.id === user.id), payouts };
+    const [{ properties }, { payouts }, { schedules }, { wallet }] = await Promise.all([
+      api("/properties"), api("/rent"), api("/rent-schedules"), api("/wallet"),
+    ]);
+    return { properties: properties.filter((p) => p.owner.id === user.id), payouts, schedules, wallet };
   }, [user.id]);
   const [showForm, setShowForm] = useState(false);
 
@@ -52,7 +54,15 @@ function Owner() {
         {data?.properties.length === 0 && !showForm && (
           <Card><p className="py-6 text-center text-sm text-muted">You haven&apos;t listed a property yet.</p></Card>
         )}
-        {data?.properties.map((p) => <OwnedProperty key={p.id} p={p} onDone={reload} />)}
+        {data?.properties.map((p) => (
+          <OwnedProperty
+            key={p.id}
+            p={p}
+            schedule={data.schedules.find((s) => s.propertyId === p.id)}
+            wallet={data.wallet}
+            onDone={reload}
+          />
+        ))}
         {data?.payouts.length > 0 && (
           <Card title="Rent you paid">
             <Table
@@ -127,7 +137,7 @@ function NewListing({ onCancel, onDone }) {
   );
 }
 
-function OwnedProperty({ p, onDone }) {
+function OwnedProperty({ p, schedule, wallet, onDone }) {
   const [panel, setPanel] = useState(null);
   const approved = p.status === "approved";
   return (
@@ -143,7 +153,7 @@ function OwnedProperty({ p, onDone }) {
       actions={
         approved && (
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setPanel(panel === "rent" ? null : "rent")} disabled={p.frozen}>Pay rent</Button>
+            <Button variant="secondary" onClick={() => setPanel(panel === "rent" ? null : "rent")} disabled={p.frozen}>Pay once</Button>
             <Button variant="secondary" onClick={() => setPanel(panel === "doc" ? null : "doc")}>Add paper</Button>
           </div>
         )
@@ -156,6 +166,7 @@ function OwnedProperty({ p, onDone }) {
         <div><span className="text-muted">Listed:</span> {date(p.createdAt)}</div>
       </div>
       {!approved && <p className="mt-3 text-sm text-muted">Waiting for the Land Authority to approve it.</p>}
+      {approved && <MonthlyRent p={p} schedule={schedule} wallet={wallet} onDone={onDone} />}
       {panel === "rent" && <PayRent p={p} onDone={() => { setPanel(null); onDone(); }} />}
       {panel === "doc" && <AddDocument p={p} onDone={() => setPanel(null)} />}
     </Card>
@@ -197,5 +208,80 @@ function PayRent({ p, onDone }) {
       </p>
       {msg && <div className="md:col-span-3"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
     </form>
+  );
+}
+
+function MonthlyRent({ p, schedule, wallet, onDone }) {
+  const [amount, setAmount] = useState(schedule?.amount || 20000);
+  const [editing, setEditing] = useState(!schedule);
+  const [busy, setBusy] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const on = schedule?.active;
+
+  async function run(what, fn) {
+    setBusy(what);
+    setMsg(null);
+    try {
+      const text = await fn();
+      setMsg({ tone: "success", text });
+      setEditing(false);
+      onDone();
+    } catch (err) {
+      setMsg({ tone: "error", text: err.message });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const save = (active) =>
+    run(active ? "save" : "stop", async () => {
+      await api(`/properties/${p.id}/rent-schedule`, { method: "PUT", body: { amount: Number(amount), active } });
+      return active ? "Monthly rent is on. This month's rent will be paid within a minute." : "Monthly rent stopped.";
+    });
+
+  const payNow = () =>
+    run("now", async () => {
+      const { payout } = await api(`/properties/${p.id}/rent-schedule/pay-now`, { method: "POST" });
+      return payout.status === "distributed"
+        ? `Rent for ${payout.period} shared out to every shareholder.`
+        : "Paid. It will be shared out soon.";
+    });
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm">
+          <span className="font-semibold">Monthly rent: </span>
+          {on ? (
+            <>
+              {rupees(schedule.amount)} every {schedule.monthSeconds ? `${schedule.monthSeconds} seconds (demo)` : "month"}
+              <span className="text-muted"> · next on {date(schedule.nextDueAt)}</span>
+            </>
+          ) : (
+            <span className="text-muted">off</span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {on && <Button variant="secondary" busy={busy === "now"} disabled={p.frozen} onClick={payNow}>Pay next month now</Button>}
+          {on && <Button variant="secondary" busy={busy === "stop"} onClick={() => save(false)}>Stop</Button>}
+          {!editing && <Button variant="secondary" onClick={() => setEditing(true)}>{on ? "Change" : "Turn on"}</Button>}
+        </div>
+      </div>
+      {editing && (
+        <form onSubmit={(e) => { e.preventDefault(); save(true); }} className="mt-3 flex flex-wrap items-end gap-3">
+          <Field label="Rent per month (₹)">
+            <Input type="number" min={1} step={0.01} required value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </Field>
+          <Button type="submit" busy={busy === "save"}>Save</Button>
+          {schedule && <Button type="button" variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>}
+        </form>
+      )}
+      <p className="mt-2 text-xs text-muted">
+        Each month the rent is taken from your <Link href="/wallet" className="underline">wallet</Link> (you have {rupees(wallet.available)})
+        {" "}and shared out by shares held: someone with 10% of the shares gets 10% of the rent.
+      </p>
+      {on && schedule.lastError && <div className="mt-2"><Alert>{schedule.lastError}</Alert></div>}
+      {msg && <div className="mt-2"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
+    </div>
   );
 }

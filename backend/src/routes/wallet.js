@@ -75,7 +75,7 @@ async function confirmDeposit(deposit, proof) {
 // Your balance and your last 50 money movements.
 router.get("/wallet", requireAuth, async (req, res) => {
   const { rows } = await db.query(
-    `SELECT e.*, COALESCE(t.property_id, r.property_id) AS property_id, t.shares, p.name AS property_name
+    `SELECT e.*, COALESCE(t.property_id, r.property_id) AS property_id, t.shares, r.period, p.name AS property_name
      FROM cash_entries e
      LEFT JOIN trades t ON t.id = e.trade_id
      LEFT JOIN rent_payouts r ON r.id = e.rent_payout_id
@@ -94,13 +94,15 @@ router.get("/wallet", requireAuth, async (req, res) => {
       rentPayoutId: e.rent_payout_id,
       property: e.property_id ? { id: e.property_id, name: e.property_name } : null,
       shares: e.shares ?? null,
+      period: e.period || null, // rent: the month it was for
       createdAt: e.created_at,
     })),
   });
 });
 
 // Body: { amount } in rupees. Returns the deposit and the Razorpay Checkout details.
-router.post("/wallet/deposits", requireAuth, requireRole("investor"), requireKyc, async (req, res) => {
+// Owners add money too: their monthly rent is paid from this wallet.
+router.post("/wallet/deposits", requireAuth, requireRole("investor", "owner"), requireKyc, async (req, res) => {
   const amountPaise = v.rupees(req.body || {}, "amount", { max: MAX_PAISE });
   const rzpOrderId = await payments.createOrder({ amountPaise, receipt: `bs-wallet-${req.user.id}-${Date.now()}` });
   const { rows } = await db.query(

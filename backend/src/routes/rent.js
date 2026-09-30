@@ -4,6 +4,7 @@ const express = require("express");
 const db = require("../db");
 const chain = require("../chain");
 const rent = require("../rent");
+const monthlyRent = require("../monthlyRent");
 const payments = require("../payments");
 const config = require("../config");
 const { HttpError } = require("../errors");
@@ -55,6 +56,57 @@ router.post("/properties/:id/rent", requireAuth, requireRole("owner", "admin"), 
       name: "BrickShare",
       description: `Rent for ${p.name}${period ? ` (${period})` : ""}`,
     },
+  });
+});
+
+// ---------- Monthly rent (paid automatically from the owner's wallet) ----------
+
+async function findOwnProperty(id, user) {
+  const { rows } = await db.query("SELECT * FROM properties WHERE id = $1", [id]);
+  const p = rows[0];
+  if (!p || (user.role === "owner" && p.owner_id !== user.id)) throw new HttpError(404, "Property not found");
+  return p;
+}
+
+// Monthly rent of your properties (admins see all).
+router.get("/rent-schedules", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT s.* FROM rent_schedules s JOIN properties p ON p.id = s.property_id
+     ${req.user.role === "admin" ? "" : "WHERE p.owner_id = $1"} ORDER BY s.property_id`,
+    req.user.role === "admin" ? [] : [req.user.id]
+  );
+  res.json({ schedules: rows.map(monthlyRent.publicSchedule) });
+});
+
+router.get("/properties/:id/rent-schedule", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  const p = await findOwnProperty(req.params.id, req.user);
+  res.json({ schedule: monthlyRent.publicSchedule(await monthlyRent.find(p.id)) });
+});
+
+// Body: { amount } in rupees, and optional { active: false } to stop it.
+// The first month is paid within a minute, then once every month.
+router.put("/properties/:id/rent-schedule", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  const p = await findOwnProperty(req.params.id, req.user);
+  const body = req.body || {};
+  const amountPaise = v.rupees(body, "amount", { max: MAX_PAISE });
+  if (body.active !== undefined && typeof body.active !== "boolean") throw new HttpError(400, "active must be true or false");
+  const active = body.active !== false;
+  if (p.status !== "approved") throw new HttpError(409, "Monthly rent can only be set for an approved property");
+  if (!(await chain.hasPhase5Features(p.contract_address))) {
+    throw new HttpError(409, "This property was listed before rent payouts existed. List it again to pay rent");
+  }
+  const schedule = await monthlyRent.save(p.id, amountPaise, active);
+  res.json({ schedule: monthlyRent.publicSchedule(schedule) });
+});
+
+// Demo button: pay the next month's rent right now instead of waiting.
+router.post("/properties/:id/rent-schedule/pay-now", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  const p = await findOwnProperty(req.params.id, req.user);
+  const { payoutId, skipped } = await monthlyRent.payMonth(p.id, { early: true });
+  if (skipped) throw new HttpError(409, skipped);
+  res.json({
+    payout: rent.publicPayout(await rent.findPayout(payoutId)),
+    schedule: monthlyRent.publicSchedule(await monthlyRent.find(p.id)),
   });
 });
 

@@ -37,6 +37,10 @@ const config = {
   },
   // How long an unpaid order keeps its shares reserved.
   orderMinutes: Number(env("ORDER_MINUTES", 15)),
+  // Monthly rent: how often to check for rent that is due, and (for demos
+  // only) how many seconds a "month" lasts. 0 = a real calendar month.
+  rentCheckSeconds: Number(env("RENT_CHECK_SECONDS", 30)),
+  rentMonthSeconds: Number(env("RENT_MONTH_SECONDS", 0)),
   // The 4 blockchain nodes, shown on the "Network" page. name=url, comma separated.
   nodes: env(
     "BESU_NODES",

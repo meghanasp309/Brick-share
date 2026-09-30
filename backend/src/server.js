@@ -6,6 +6,7 @@ const { createApp } = require("./app");
 const live = require("./live");
 const trading = require("./trading");
 const rent = require("./rent");
+const monthlyRent = require("./monthlyRent");
 const { resumeDeliveries } = require("./routes/orders");
 
 async function main() {
@@ -22,6 +23,7 @@ async function main() {
   if (delivered) console.log(`Sent shares for ${delivered} paid order(s) that were stuck`);
   const waiting = await rent.resumeWaiting();
   if (waiting) console.log(`Tried to share out ${waiting} rent payout(s) that were waiting`);
+  monthlyRent.start(); // pays each property's monthly rent when it is due
 }
 
 main().catch((err) => {
