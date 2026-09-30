@@ -1,0 +1,2 @@
+# Keep Linux line endings everywhere, so Besu can read the key files on Windows too.
+* text=auto eol=lf
