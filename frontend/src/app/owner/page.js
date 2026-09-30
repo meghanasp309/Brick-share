@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { pay } from "@/lib/payments";
+import { confirmDelete } from "@/lib/deleteProperty";
 import { useLoad } from "@/lib/useLoad";
 import { count, date, rupees } from "@/lib/format";
 import AddDocument from "@/components/AddDocument";
@@ -140,6 +141,22 @@ function NewListing({ onCancel, onDone }) {
 function OwnedProperty({ p, schedule, wallet, onDone }) {
   const [panel, setPanel] = useState(null);
   const approved = p.status === "approved";
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
+
+  async function remove() {
+    setDeleteError(null);
+    if (!confirmDelete(p)) return;
+    setDeleting(true);
+    try {
+      await api(`/properties/${p.id}`, { method: "DELETE" });
+      onDone();
+    } catch (err) {
+      setDeleteError(err.message);
+      setDeleting(false);
+    }
+  }
+
   return (
     <Card
       title={
@@ -151,14 +168,18 @@ function OwnedProperty({ p, schedule, wallet, onDone }) {
         </span>
       }
       actions={
-        approved && (
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setPanel(panel === "rent" ? null : "rent")} disabled={p.frozen}>Pay once</Button>
-            <Button variant="secondary" onClick={() => setPanel(panel === "doc" ? null : "doc")}>Add paper</Button>
-          </div>
-        )
+        <div className="flex gap-2">
+          {approved && (
+            <>
+              <Button variant="secondary" onClick={() => setPanel(panel === "rent" ? null : "rent")} disabled={p.frozen}>Pay once</Button>
+              <Button variant="secondary" onClick={() => setPanel(panel === "doc" ? null : "doc")}>Add paper</Button>
+            </>
+          )}
+          <Button variant="danger" busy={deleting} onClick={remove}>Delete</Button>
+        </div>
       }
     >
+      {deleteError && <div className="mb-3"><Alert>{deleteError}</Alert></div>}
       <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
         <div><span className="text-muted">Location:</span> {p.location}</div>
         <div><span className="text-muted">Shares:</span> {count(p.totalShares)}</div>

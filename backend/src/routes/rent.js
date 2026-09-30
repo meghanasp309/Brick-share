@@ -29,7 +29,7 @@ async function findVisiblePayout(id, user) {
 router.post("/properties/:id/rent", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   const { rows } = await db.query("SELECT * FROM properties WHERE id = $1", [req.params.id]);
   const p = rows[0];
-  if (!p || (req.user.role === "owner" && p.owner_id !== req.user.id)) throw new HttpError(404, "Property not found");
+  if (!p || p.deleted_at || (req.user.role === "owner" && p.owner_id !== req.user.id)) throw new HttpError(404, "Property not found");
   const amountPaise = v.rupees(req.body || {}, "amount", { max: MAX_PAISE });
   const period = v.text(req.body || {}, "period", { max: 50, optional: true });
 
@@ -64,7 +64,7 @@ router.post("/properties/:id/rent", requireAuth, requireRole("owner", "admin"), 
 async function findOwnProperty(id, user) {
   const { rows } = await db.query("SELECT * FROM properties WHERE id = $1", [id]);
   const p = rows[0];
-  if (!p || (user.role === "owner" && p.owner_id !== user.id)) throw new HttpError(404, "Property not found");
+  if (!p || p.deleted_at || (user.role === "owner" && p.owner_id !== user.id)) throw new HttpError(404, "Property not found");
   return p;
 }
 
