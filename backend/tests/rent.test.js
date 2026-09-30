@@ -8,6 +8,7 @@ const { createApp } = require("../src/app");
 const chain = require("../src/chain");
 const db = require("../src/db");
 const trading = require("../src/trading");
+const monthlyRent = require("../src/monthlyRent");
 
 const app = createApp();
 const api = () => request(app);
@@ -213,4 +214,68 @@ test("a frozen property pays no rent until it is unfrozen", async () => {
   const done = (await api().get(`/rent/${waiting.id}`).set(auth(adminToken)).expect(200)).body.payout;
   assert.strictEqual(done.status, "distributed");
   assert.strictEqual((await wallet(alice.token)).wallet.balance, before + 50); // 10% of ₹500
+});
+
+test("monthly rent is taken from the owner's wallet and split by shares, once a month", async () => {
+  // Now Alice holds 10% of the shares and Bob 15%.
+  const url = `/properties/${property.id}/rent-schedule`;
+  const schedule = async () => (await api().get(url).set(auth(owner.token)).expect(200)).body.schedule;
+  const balance = async (token) => (await wallet(token)).wallet.balance;
+  const change = (before, after) => Math.round((after - before) * 100) / 100;
+  const addMoney = async (amount) => {
+    const d = await api().post("/wallet/deposits").set(auth(owner.token)).send({ amount }).expect(201);
+    await api().post(`/wallet/deposits/${d.body.deposit.id}/mock-pay`).set(auth(owner.token)).expect(200);
+  };
+
+  await api().put(url).set(auth(alice.token)).send({ amount: 20000 }).expect(403);
+  await api().put(url).set(auth(otherOwner.token)).send({ amount: 20000 }).expect(404);
+  await api().put(url).set(auth(owner.token)).send({ amount: 0 }).expect(400);
+  const set = (await api().put(url).set(auth(owner.token)).send({ amount: 20000 }).expect(200)).body.schedule;
+  assert.deepStrictEqual([set.amount, set.active], [20000, true]);
+
+  // Not enough money in the owner's wallet: nothing is taken, and the owner sees why.
+  const alice0 = await balance(alice.token);
+  assert.strictEqual(await monthlyRent.payDue(), 0);
+  assert.match((await schedule()).lastError, /Not enough money/);
+  assert.strictEqual(await balance(alice.token), alice0);
+
+  // The owner adds money; the next check pays this month.
+  await addMoney(20000);
+  const owner0 = await balance(owner.token);
+  const bob0 = await balance(bob.token);
+  assert.strictEqual(await monthlyRent.payDue(), 1);
+  assert.strictEqual(await monthlyRent.payDue(), 0); // not due again until next month
+  assert.strictEqual(change(alice0, await balance(alice.token)), 2000); // 10%
+  assert.strictEqual(change(bob0, await balance(bob.token)), 3000); // 15%
+  assert.strictEqual(change(owner0, await balance(owner.token)), -5000); // paid 20,000, got 75% back
+
+  const a = await wallet(alice.token);
+  assert.deepStrictEqual([a.history[0].type, a.history[0].amount, a.history[0].property.id], ["rent", 2000, property.id]);
+  assert.ok(a.history[0].period);
+  const o = await wallet(owner.token);
+  assert.ok(o.history.some((e) => e.type === "rent_paid" && e.amount === -20000));
+  const s = await schedule();
+  assert.strictEqual(s.lastError, null);
+  assert.ok(new Date(s.nextDueAt) - Date.now() > 27 * 24 * 3600 * 1000, "next rent is about a month away");
+
+  // Frozen: "Pay now" refuses and no money moves.
+  await api().post(`/properties/${property.id}/freeze`).set(auth(laToken)).send({ reason: "Survey" }).expect(200);
+  const frozen = await api().post(`${url}/pay-now`).set(auth(owner.token)).expect(409);
+  assert.match(frozen.body.error, /frozen \(Survey\)/);
+  await api().post(`/properties/${property.id}/unfreeze`).set(auth(laToken)).expect(200);
+
+  // "Pay now" (for demos) pays next month straight away.
+  await addMoney(5000);
+  const alice1 = await balance(alice.token);
+  const early = (await api().post(`${url}/pay-now`).set(auth(owner.token)).expect(200)).body;
+  assert.strictEqual(early.payout.status, "distributed");
+  assert.strictEqual(early.payout.amount, 20000);
+  assert.ok(new Date(early.schedule.nextDueAt) > new Date(s.nextDueAt));
+  assert.strictEqual(change(alice1, await balance(alice.token)), 2000);
+
+  // Stopped: nothing more is paid.
+  await api().put(url).set(auth(owner.token)).send({ amount: 20000, active: false }).expect(200);
+  await api().post(`${url}/pay-now`).set(auth(owner.token)).expect(409);
+  const list = (await api().get("/rent-schedules").set(auth(owner.token)).expect(200)).body.schedules;
+  assert.deepStrictEqual(list.map((x) => [x.propertyId, x.active]), [[property.id, false]]);
 });

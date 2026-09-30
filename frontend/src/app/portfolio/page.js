@@ -87,11 +87,12 @@ function Portfolio() {
           <Card title="Rent received" actions={<span className="text-sm font-semibold">{rupees(rent.total)}</span>}>
             <Table
               rows={rent.received}
-              empty="No rent yet. When an owner pays rent, your part lands here."
+              empty="No rent yet. Each month the owner pays rent, and your part (by the shares you hold) lands in your wallet."
               columns={[
                 { label: "Property", render: (r) => r.property.name },
                 { label: "Period", render: (r) => r.period || "–" },
-                { label: "You got", align: "right", render: (r) => rupees(r.amount) },
+                { label: "Total rent", align: "right", render: (r) => rupees(r.totalRent) },
+                { label: "Your part", align: "right", render: (r) => `${rupees(r.amount)} (${+((r.amount / r.totalRent) * 100).toFixed(2)}%)` },
                 { label: "Date", render: (r) => date(r.createdAt) },
               ]}
             />

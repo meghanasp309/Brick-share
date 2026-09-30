@@ -19,7 +19,14 @@ export default function WalletPage() {
   );
 }
 
-const typeLabel = { deposit: "Added money", withdrawal: "Withdrew to bank", buy: "Bought shares", sell: "Sold shares", rent: "Rent received" };
+const typeLabel = { deposit: "Added money", withdrawal: "Withdrew to bank", buy: "Bought shares", sell: "Sold shares", rent: "Rent received", rent_paid: "Monthly rent paid" };
+
+function details(e) {
+  if (!e.property) return "–";
+  if (e.shares) return `${e.property.name} · ${e.shares} shares`;
+  if (e.period) return `${e.property.name} · ${e.period}`;
+  return e.property.name;
+}
 
 function Wallet() {
   const { user } = useAuth();
@@ -42,7 +49,7 @@ function Wallet() {
   const { wallet, history } = data;
 
   return (
-    <Page title="Wallet" subtitle="Your rupees for trading. Test money only.">
+    <Page title="Wallet" subtitle={user.role === "owner" ? "Your rupees for paying and receiving rent. Test money only." : "Your rupees for trading. Rent lands here too. Test money only."}>
       <KycNotice user={user} />
       <Card className="mb-6">
         <div className="grid grid-cols-3 gap-6">
@@ -53,7 +60,7 @@ function Wallet() {
       </Card>
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="min-w-0 space-y-6">
-          {user.role === "investor" && <AddMoney disabled={user.kycStatus !== "approved"} onDone={reload} />}
+          <AddMoney owner={user.role === "owner"} disabled={user.kycStatus !== "approved"} onDone={reload} />
           <Withdraw available={wallet.available} onDone={reload} />
         </div>
         <Card title="History" className="lg:col-span-2">
@@ -62,7 +69,7 @@ function Wallet() {
             empty="No money movements yet."
             columns={[
               { label: "What", render: (e) => typeLabel[e.type] || e.type },
-              { label: "Details", render: (e) => (e.property ? `${e.property.name}${e.shares ? ` · ${e.shares} shares` : ""}` : "–") },
+              { label: "Details", render: details },
               {
                 label: "Amount",
                 align: "right",
@@ -77,7 +84,7 @@ function Wallet() {
   );
 }
 
-function AddMoney({ disabled, onDone }) {
+function AddMoney({ owner, disabled, onDone }) {
   const [amount, setAmount] = useState(10000);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -112,6 +119,7 @@ function AddMoney({ disabled, onDone }) {
           ))}
         </div>
         <Button type="submit" busy={busy} disabled={disabled} className="w-full">Pay with Razorpay (test)</Button>
+        {owner && <p className="text-xs text-muted">Your monthly rent is paid from this wallet.</p>}
         {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
       </form>
     </Card>

@@ -193,10 +193,10 @@ CREATE INDEX IF NOT EXISTS rent_payouts_property_idx ON rent_payouts (property_i
 
 -- Rent lands in the rupee wallet as a 'rent' entry.
 ALTER TABLE cash_entries ADD COLUMN IF NOT EXISTS rent_payout_id INTEGER REFERENCES rent_payouts(id);
--- Databases made before phase 5 don't allow 'rent' yet.
+-- Older databases don't allow 'rent' (phase 5) or 'rent_paid' (monthly rent) yet.
 ALTER TABLE cash_entries DROP CONSTRAINT IF EXISTS cash_entries_kind_check;
 ALTER TABLE cash_entries ADD CONSTRAINT cash_entries_kind_check
-  CHECK (kind IN ('deposit', 'withdrawal', 'buy', 'sell', 'rent'));
+  CHECK (kind IN ('deposit', 'withdrawal', 'buy', 'sell', 'rent', 'rent_paid'));
 
 -- Property papers stored on IPFS. The CID (the file's fingerprint) is also
 -- saved in the property contract, so anyone can check a file wasn't changed.
@@ -219,3 +219,21 @@ CREATE INDEX IF NOT EXISTS property_documents_property_idx ON property_documents
 -- The block each property's contract was deployed in, so searches for its
 -- past events start there. NULL for properties listed before this was added.
 ALTER TABLE properties ADD COLUMN IF NOT EXISTS deploy_block INTEGER;
+
+-- ---------- Monthly rent ----------
+
+-- A property's monthly rent. Each month BrickShare takes it from the owner's
+-- rupee wallet and shares it out like any other rent payout.
+CREATE TABLE IF NOT EXISTS rent_schedules (
+  property_id  INTEGER PRIMARY KEY REFERENCES properties(id),
+  amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
+  active       BOOLEAN NOT NULL DEFAULT true,
+  next_due_at  TIMESTAMPTZ NOT NULL, -- when the next month's rent is paid
+  last_error   TEXT, -- why the last try didn't pay (e.g. not enough money)
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Monthly rent is paid from the owner's wallet ('wallet'), and shows there as 'rent_paid'.
+ALTER TABLE rent_payouts DROP CONSTRAINT IF EXISTS rent_payouts_payment_mode_check;
+ALTER TABLE rent_payouts ADD CONSTRAINT rent_payouts_payment_mode_check
+  CHECK (payment_mode IN ('razorpay', 'mock', 'wallet'));

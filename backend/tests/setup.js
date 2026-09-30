@@ -20,7 +20,7 @@ async function resetDatabase() {
   await admin.end();
 
   const db = require("../src/db");
-  await db.query("DROP TABLE IF EXISTS property_documents, rent_payouts, cash_entries, trades, book_orders, deposits, cash_accounts, orders, properties, kyc_submissions, users CASCADE");
+  await db.query("DROP TABLE IF EXISTS rent_schedules, property_documents, rent_payouts, cash_entries, trades, book_orders, deposits, cash_accounts, orders, properties, kyc_submissions, users CASCADE");
   await db.migrate();
   await require("../src/seed").seed();
 }

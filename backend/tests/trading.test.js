@@ -72,7 +72,7 @@ test.after(async () => {
 
 test("wallet: add money, withdraw, and who can use it", async () => {
   await api().post("/wallet/deposits").set(auth(carol.token)).send({ amount: 100 }).expect(403); // no KYC
-  await api().post("/wallet/deposits").set(auth(owner.token)).send({ amount: 100 }).expect(403); // owners don't trade
+  await order(owner.token, "buy", 1, 100).expect(403); // owners don't trade (they can add money to pay rent)
   await api().post("/wallet/deposits").set(auth(bob.token)).send({ amount: 0 }).expect(400);
   await api().post("/wallet/deposits").set(auth(bob.token)).send({ amount: 10.123 }).expect(400);
 

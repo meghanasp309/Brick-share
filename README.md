@@ -184,7 +184,7 @@ Try the whole story (use 4 browser windows, or log out and in):
 4. **Log in as the Land Authority** (land@brickshare.test / land123). Check the papers and approve it.
 5. **As an investor**, open the property and buy shares from the owner (fake payment).
 6. **As the other investor**, add money on the Wallet page. Then open "Trade on the market" and buy. The chart, order book and trades update live on both screens.
-7. **As the owner**, pay rent. Each investor sees their part on the Portfolio page.
+7. **As the owner**, add money on the Wallet page, then on "My properties" turn on **Monthly rent** (e.g. ₹20,000). The first month is paid within a minute; click **Pay next month now** to see another month without waiting. Each investor sees their part on the Wallet and Portfolio pages.
 8. **As the Land Authority**, freeze the property. A red banner appears, and nobody can buy or sell until you unfreeze it.
 
 If the backend runs somewhere else, copy `frontend/.env.example` to `frontend/.env.local` and change `NEXT_PUBLIC_API_URL`.
@@ -334,6 +334,17 @@ Razorpay signs every webhook with that secret, so nobody else can fake one. If b
 6. **Frozen property**: no rent is paid. Rent that was already paid waits, and is shared out by itself when the Land Authority unfreezes the property.
 
 Investors see their rent in `GET /rent/received`, in their wallet history, and as `rentEarned` in their portfolio.
+
+### Monthly rent (automatic)
+
+The owner sets a monthly rent once on "My properties" (`PUT /properties/:id/rent-schedule` with `{ "amount": 20000 }`).
+
+- The first month is paid within a minute, then once every month, by itself.
+- The money comes from the owner's rupee wallet (owners can add money on the Wallet page). It shows there as "Monthly rent paid".
+- Not enough money? Nothing is taken, the owner page says why, and it tries again every 30 seconds.
+- Frozen property? Nothing is taken until it is unfrozen.
+- For demos: **Pay next month now** (`POST /properties/:id/rent-schedule/pay-now`) pays straight away, or set `RENT_MONTH_SECONDS=120` in `backend/.env` so a "month" lasts 2 minutes.
+- Stop it with `{ "amount": 20000, "active": false }`.
 
 ### Try it in PowerShell
 
