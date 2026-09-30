@@ -76,7 +76,7 @@ function Portfolio() {
               {
                 label: "",
                 render: (h) => (
-                  <Link href={`/trade/${h.property.id}`} className="text-sm text-brand underline">Trade</Link>
+                  <Link href={`/trade/${h.property.id}?side=sell`} className="text-sm text-brand underline">Sell</Link>
                 ),
               },
             ]}

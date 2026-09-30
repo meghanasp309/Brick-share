@@ -190,6 +190,9 @@ test("market data: price, 24h change, candles, portfolio", async () => {
   assert.strictEqual(m.ticker.marketCap, 100000);
   assert.strictEqual(m.ticker.bestAsk, 110);
   assert.strictEqual(m.ticker.bestBid, null);
+  // Other investors can see how many shares are for sale.
+  assert.ok(m.ticker.sharesForSale > 0);
+  assert.strictEqual(m.ticker.sharesForSale, m.orderBook.asks.reduce((n, a) => n + a.shares, 0));
   assert.strictEqual(m.trades.length, 4);
   assert.strictEqual((await api().get("/market").expect(200)).body.markets.length, 1);
 

@@ -77,7 +77,16 @@ function PropertyCard({ p }) {
           {percent(change)} <span className="text-xs text-muted">24h</span>
         </div>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-line pt-3 text-xs text-muted">
+      <div className="mt-3 text-xs">
+        {m?.sharesForSale ? (
+          <span className="font-medium text-emerald-700">
+            {count(m.sharesForSale)} shares for sale by investors, from {rupees(m.bestAsk)}
+          </span>
+        ) : (
+          <span className="text-muted">No investor is selling right now</span>
+        )}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 border-t border-line pt-3 text-xs text-muted">
         <span>Shares: {count(p.totalShares)}</span>
         <span className="text-right">Value: {rupees(m?.marketCap)}</span>
       </div>

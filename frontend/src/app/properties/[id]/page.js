@@ -83,6 +83,7 @@ export default function PropertyPage() {
           {approved && user?.role === "investor" && (
             <BuyFromOwner p={p} sharesForSale={sharesForSale} user={user} onDone={reload} />
           )}
+          {approved && <BuyFromInvestors p={p} market={market} />}
           <Card title="On the blockchain">
             <dl className="space-y-2 text-sm">
               <Row label="Status"><StatusBadge status={onChain.status} /></Row>
@@ -99,6 +100,28 @@ export default function PropertyPage() {
         </div>
       </div>
     </Page>
+  );
+}
+
+/** Shares other investors are selling on the market, with a way to buy them. */
+function BuyFromInvestors({ p, market }) {
+  const forSale = market?.ticker.sharesForSale || 0;
+  return (
+    <Card title="Buy from other investors">
+      {forSale ? (
+        <p className="mb-4 text-sm">
+          <span className="font-semibold">{count(forSale)} shares</span> are for sale by other investors, from{" "}
+          <span className="font-semibold">{rupees(market.ticker.bestAsk)}</span> each.
+        </p>
+      ) : (
+        <p className="mb-4 text-sm text-muted">
+          No investor is selling right now. You can still place a buy order, and it trades when someone sells at your price.
+        </p>
+      )}
+      <LinkButton href={`/trade/${p.id}?side=buy`} variant="buy" className="w-full">
+        Buy on the market
+      </LinkButton>
+    </Card>
   );
 }
 
@@ -142,7 +165,7 @@ function BuyFromOwner({ p, sharesForSale, user, onDone }) {
     <Card title="Buy from the owner">
       {sharesForSale === 0 ? (
         <Empty>
-          All shares are sold. Buy from other investors on the <Link href={`/trade/${p.id}`} className="underline">market</Link>.
+          All shares are sold. Buy from other investors on the <Link href={`/trade/${p.id}?side=buy`} className="underline">market</Link>.
         </Empty>
       ) : (
         <form onSubmit={buy} className="space-y-4">
