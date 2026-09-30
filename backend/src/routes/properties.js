@@ -13,6 +13,7 @@ const { requireAuth, requireRole, requireKyc } = require("../auth");
 const { uploader, fileHash } = require("../uploads");
 const v = require("../validate");
 const { reservedShares } = require("./orders");
+const trading = require("../trading");
 
 const router = express.Router();
 const upload = uploader("papers");
@@ -134,6 +135,7 @@ router.post("/properties/:id/freeze", ...la, async (req, res) => {
   const reason = v.text(req.body || {}, "reason", { max: 200 });
   const tx = await chain.freeze(p.contract_address, chain.userSigner(req.user), reason);
   await db.query("UPDATE properties SET frozen = true, freeze_reason = $2 WHERE id = $1", [p.id, reason]);
+  await trading.announceStatus(p.id);
   res.json({ property: publicProperty(await findProperty(p.id)), transaction: tx });
 });
 
@@ -141,6 +143,9 @@ router.post("/properties/:id/unfreeze", ...la, async (req, res) => {
   const p = await findProperty(req.params.id);
   const tx = await chain.unfreeze(p.contract_address, chain.userSigner(req.user));
   await db.query("UPDATE properties SET frozen = false, freeze_reason = NULL WHERE id = $1", [p.id]);
+  await trading.announceStatus(p.id);
+  // Trades that failed because of the freeze can now go through.
+  await trading.retryFailedTrades(p.id);
   res.json({ property: publicProperty(await findProperty(p.id)), transaction: tx });
 });
 

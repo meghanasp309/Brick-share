@@ -27,12 +27,10 @@ const token = (address, runner = provider) => new ethers.Contract(address, artif
 
 const iface = new ethers.Interface(artifact.abi);
 
-/** Calls a contract function as `signer`, waits until it is in a block, returns the hash. */
-async function send(signer, address, fn, ...args) {
+/** Calls a contract function as `signer` and returns the sent transaction (not yet in a block). */
+async function submit(signer, address, fn, ...args) {
   try {
-    const tx = await token(address, signer)[fn](...args, TX);
-    const receipt = await tx.wait();
-    return receipt.hash;
+    return await token(address, signer)[fn](...args, TX);
   } catch (err) {
     // A failed call may have used up a nonce (the wallet's transaction
     // number) without sending anything. Re-read it, or the next one gets stuck.
@@ -44,6 +42,13 @@ async function send(signer, address, fn, ...args) {
     }
     throw err;
   }
+}
+
+/** Calls a contract function as `signer`, waits until it is in a block, returns the hash. */
+async function send(signer, address, fn, ...args) {
+  const tx = await submit(signer, address, fn, ...args);
+  const receipt = await tx.wait();
+  return receipt.hash;
 }
 
 /** Deploys a new PropertyToken contract (the property starts as Pending). */
@@ -90,6 +95,27 @@ async function readProperty(contractAddress, ownerAddress) {
 /** Moves `shares` from the signer's wallet (e.g. the property owner) to `to`. */
 const transferShares = (contractAddress, signer, to, shares) => send(signer, contractAddress, "transfer", to, shares);
 
+/**
+ * Sends a share transfer from the signer's wallet to `to`. Calls
+ * `onSent(hash)` as soon as it is sent, then waits for the block.
+ */
+async function transferSharesTracked(contractAddress, signer, to, shares, onSent) {
+  const tx = await submit(signer, contractAddress, "transfer", to, shares);
+  await onSent(tx.hash);
+  const receipt = await tx.wait();
+  return receipt.hash;
+}
+
+/**
+ * What happened to a transaction we sent earlier: "success", "reverted",
+ * or "unknown" (not in a block within `waitMs`).
+ */
+async function transactionOutcome(txHash, waitMs = 30_000) {
+  const receipt = await provider.waitForTransaction(txHash, 1, waitMs).catch(() => null);
+  if (!receipt) return "unknown";
+  return receipt.status === 1 ? "success" : "reverted";
+}
+
 async function balanceOf(contractAddress, address) {
   return Number(await token(contractAddress).balanceOf(address));
 }
@@ -131,5 +157,5 @@ async function networkInfo() {
 module.exports = {
   provider, platform, userSigner, deployProperty, addToWhitelist,
   approveProperty, freeze, unfreeze, readProperty, isWhitelisted, networkInfo,
-  transferShares, balanceOf, transfersOf,
+  transferShares, transferSharesTracked, transactionOutcome, balanceOf, transfersOf,
 };
