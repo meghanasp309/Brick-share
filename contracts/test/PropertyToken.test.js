@@ -48,6 +48,21 @@ describe("PropertyToken", function () {
     );
   });
 
+  it("can be frozen while pending, and then cannot be approved until unfrozen", async function () {
+    await expect(token.connect(landAuthority).freeze("Papers look fake"))
+      .to.emit(token, "Frozen")
+      .withArgs(landAuthority.address, "Papers look fake");
+    await expect(token.connect(landAuthority).approveProperty())
+      .to.be.revertedWithCustomError(token, "PropertyFrozen")
+      .withArgs("Papers look fake");
+    expect(await token.status()).to.equal(0); // still Pending
+    expect(await token.totalSupply()).to.equal(0n);
+
+    await token.connect(landAuthority).unfreeze();
+    await token.connect(landAuthority).approveProperty();
+    expect(await token.balanceOf(owner.address)).to.equal(SHARES);
+  });
+
   describe("after approval", function () {
     beforeEach(async function () {
       await token.connect(landAuthority).approveProperty();
