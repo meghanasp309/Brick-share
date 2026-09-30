@@ -1,4 +1,4 @@
-# BrickShare database (PostgreSQL).
+# BrickShare database (PostgreSQL) and IPFS node (for property papers).
 # Start:  docker compose up -d      Stop: docker compose stop
 # Delete all data and start fresh: docker compose down -v
 services:
@@ -18,5 +18,18 @@ services:
       interval: 5s
       retries: 10
 
+  # IPFS: a peer-to-peer file network, a bit like torrents. Every file gets a
+  # fingerprint (CID) made from its content, so a changed file gets a new CID.
+  ipfs:
+    image: ipfs/kubo:v0.38.1
+    container_name: brickshare-ipfs
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5001:5001" # API: only the backend on this laptop may add files
+      - "8080:8080"           # gateway: view a file at http://localhost:8080/ipfs/<CID>
+    volumes:
+      - ipfs-data:/data/ipfs
+
 volumes:
   db-data:
+  ipfs-data:

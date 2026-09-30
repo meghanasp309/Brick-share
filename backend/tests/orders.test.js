@@ -166,7 +166,7 @@ test("portfolio and transaction history", async () => {
   assert.strictEqual(h.ownership, 12);
   assert.strictEqual(h.value, 30060); // 120 x ₹250.50
   assert.strictEqual(h.invested, 30060);
-  assert.deepStrictEqual(portfolio.body.totals, { properties: 1, value: 30060, invested: 30060 });
+  assert.deepStrictEqual(portfolio.body.totals, { properties: 1, value: 30060, invested: 30060, rentEarned: 0 });
 
   const history = await api().get("/transactions").set(auth(alice.token)).expect(200);
   assert.deepStrictEqual(history.body.transactions.map((t) => [t.type, t.shares, t.amount]), [

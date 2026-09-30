@@ -5,8 +5,8 @@
 //    You then get "orderbook", "trade" and "ticker" events for it.
 //  - To get your own updates, connect with your login token:
 //      io("http://localhost:4000", { auth: { token } })
-//    You then get "order" (your order changed), "trade" (your trade changed)
-//    and "wallet" (your rupee balance changed).
+//    You then get "order" (your order changed), "trade" (your trade changed),
+//    "wallet" (your rupee balance changed) and "rent" (you received rent).
 const jwt = require("jsonwebtoken");
 const { Server } = require("socket.io");
 const config = require("./config");

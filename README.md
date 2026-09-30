@@ -13,7 +13,7 @@ brick-share/
 └── backend/     API server (Node + Express + PostgreSQL)
 ```
 
-Coming next (see the plan): rent payouts, and `frontend/` (Next.js).
+Coming next (see the plan): `frontend/` (Next.js).
 
 ### The blockchain, in simple words
 
@@ -30,6 +30,8 @@ One contract = one property. One token = one share. It follows these rules:
 3. **BrickShare** does KYC and adds investors to a **whitelist**. Only whitelisted people can hold shares.
 4. Whitelisted people can transfer (buy/sell) shares.
 5. If there's a legal dispute, the Land Authority can `freeze()` the property. Then **nobody** can move shares, not even BrickShare. `unfreeze()` lifts it.
+6. **Rent**: BrickShare calls `distributeRent()`. The contract takes a snapshot of who holds how many shares right then, and `rentOwed()` says each holder's part. A frozen property pays no rent.
+7. **Papers**: the property papers are on IPFS. Their fingerprint (CID) is saved in the contract (`documentHash`, and `addDocument()` for more papers later), so anyone can check they were never changed.
 
 The contract itself checks these rules, so no app or person can skip them.
 
@@ -47,7 +49,7 @@ In PowerShell, inside your `brick-share` folder:
 
 ```powershell
 git fetch
-git checkout claude/project-thread-dvnul1
+git checkout claude/project-thread-fnbmbg
 ```
 
 (Once this is merged, just use `git checkout main` and `git pull`.)
@@ -74,11 +76,11 @@ You should see all 4 nodes on the **same block number and hash**. Run it again: 
 ### 5. Test and try the contract
 
 ```powershell
-npm test       # runs 8 tests on a quick built-in test chain
+npm test       # runs 13 tests on a quick built-in test chain
 npm run demo   # plays the full story on YOUR Besu network
 ```
 
-The demo lists a property, has the Land Authority approve it, whitelists an investor, sells them 50 shares, freezes the property (the next transfer is blocked), then unfreezes it.
+The demo lists a property, has the Land Authority approve it, whitelists an investor, sells them 50 shares, freezes the property (the next transfer is blocked), unfreezes it, and pays out rent.
 
 ### 6. Stop it
 
@@ -94,10 +96,12 @@ Keep the blockchain running (step 3). Then:
 
 ```powershell
 cd ..\backend
-docker compose up -d     # starts the database (PostgreSQL)
+docker compose up -d     # starts the database (PostgreSQL) and IPFS (for property papers)
 npm install
 npm start
 ```
+
+The first time, Docker downloads PostgreSQL and IPFS (about 200 MB).
 
 Open http://localhost:4000/health in your browser. You should see `"ok": true` and the block number.
 
@@ -118,7 +122,7 @@ With the blockchain and the database both running:
 npm test
 ```
 
-The tests use their own database (`brickshare_test`), so your data is safe. They take about 2-3 minutes, because each blockchain step waits for a new block.
+The tests use their own database (`brickshare_test`), so your data is safe. They take about 3-4 minutes, because each blockchain step waits for a new block.
 
 ### If something goes wrong
 
@@ -130,6 +134,10 @@ The tests use their own database (`brickshare_test`), so your data is safe. They
 - **Port 5432 already in use**: you have another PostgreSQL installed. Stop it, or change the port in `backend/docker-compose.yml` and `DATABASE_URL` in `.env`.
 - **"Not enough money in your wallet"**: add money first with `POST /wallet/deposits`. Money in your open buy orders is held, so cancel one to free it.
 - **A trade stays "failed"**: the property is probably frozen. It goes through by itself after the Land Authority unfreezes it, or call `POST /trading/trades/:id/retry`.
+- **"Can't reach IPFS"**: run `docker compose up -d` inside `backend`. It starts IPFS next to the database.
+- **Port 8080 already in use**: another program uses it. Change `"8080:8080"` to `"8081:8080"` in `backend/docker-compose.yml`, and set `IPFS_GATEWAY_URL=http://127.0.0.1:8081` in `.env`.
+- **"This property was listed before rent payouts existed"**: properties listed before this update use the old contract, which can't pay rent or keep papers. List the property again.
+- **Rent stays "paid" and isn't shared out**: the property is probably frozen. It is shared out by itself when the Land Authority unfreezes it. Or call `POST /rent/:id/retry`.
 - **You reset the blockchain** (`down -v`) but not the database: old properties point to contracts that no longer exist. Reset the database too: `cd backend` then `docker compose down -v` and `docker compose up -d`.
 
 ## The backend, in simple words
@@ -139,11 +147,12 @@ The backend is the middle part between the app and the blockchain.
 - **Login with roles**: investor, owner, admin, land authority. Anyone can sign up as an investor or owner.
 - **Custodial wallets**: every user gets a blockchain wallet when they sign up. The server keeps its key locked (encrypted), so users never touch crypto.
 - **KYC (simulated)**: a user uploads a photo of their ID. An admin approves it, and the server adds the user's wallet to the whitelist of every property on the chain.
-- **Listing**: an owner with approved KYC lists a property. The server deploys a new `PropertyToken` contract for it (Pending). The Land Authority approves it, and all shares go to the owner. The Land Authority can also freeze it.
+- **Listing**: an owner with approved KYC lists a property, with its papers. The papers go to IPFS, and the server deploys a new `PropertyToken` contract for it (Pending) with the papers' fingerprint inside. The Land Authority approves it, and all shares go to the owner. The Land Authority can also freeze it.
 - **Buying shares**: a verified investor picks a property and a number of shares, and pays in rupees with Razorpay (test mode). When the payment is confirmed, the server moves the shares from the owner's wallet to the investor's wallet on the blockchain.
 - **Portfolio**: shows your shares (read from the blockchain), what they're worth at the latest market price, and your full history.
 - **Rupee wallet**: investors add money with Razorpay (test mode) and use it to trade.
 - **Trading, like a stock app**: investors buy and sell shares from each other with an order book. Prices, the order book and trades update live.
+- **Rent payouts**: the owner pays the month's rent, and it is shared out automatically to everyone holding shares, into their rupee wallet.
 - **The database** only keeps things like names, emails, photos and orders. Who owns which shares is always read from the blockchain.
 
 ### How buying works
@@ -228,7 +237,49 @@ socket.on("trade", (trade) => {});         // a new trade (or yours changed)
 socket.on("ticker", (t) => {});            // new price, 24h change, volume
 socket.on("order", (order) => {});         // your order changed (needs token)
 socket.on("wallet", (w) => {});            // your balance changed (needs token)
+socket.on("rent", (r) => {});              // you received rent (needs token)
 ```
+
+## Rent payouts, in simple words
+
+1. The owner (or an admin) pays the month's rent for a property, say ₹1,00,000, with Razorpay (test mode).
+2. BrickShare records the payout in the property's smart contract. The contract takes a **snapshot**: who holds how many shares at that exact moment.
+3. The contract works out each holder's part: rent x (their shares / all shares). Hold 2% of the shares, get 2% of the rent (₹2,000).
+4. Each part goes straight into that holder's rupee wallet. The owner gets the part for the shares they still hold, plus a few paise left over from rounding.
+5. Buying or selling shares after the snapshot doesn't change that payout. The next month uses the new balances.
+6. **Frozen property**: no rent is paid. Rent that was already paid waits, and is shared out by itself when the Land Authority unfreezes the property.
+
+Investors see their rent in `GET /rent/received`, in their wallet history, and as `rentEarned` in their portfolio.
+
+### Try it in PowerShell
+
+As the owner of an approved property that investors already hold shares in:
+
+```powershell
+$login = Invoke-RestMethod -Method Post -Uri http://localhost:4000/auth/login -ContentType "application/json" -Body '{"email":"owner@example.com","password":"password123"}'
+$h = @{ Authorization = "Bearer $($login.token)" }
+
+# 1. Pay ₹10,000 rent for property 1 (fake payment)
+$r = Invoke-RestMethod -Method Post -Uri http://localhost:4000/properties/1/rent -Headers $h -ContentType "application/json" -Body '{"amount":10000,"period":"October 2026"}'
+Invoke-RestMethod -Method Post -Uri "http://localhost:4000/rent/$($r.payout.id)/mock-pay" -Headers $h | ConvertTo-Json -Depth 5
+
+# 2. Every payout of this property (anyone can see this)
+Invoke-RestMethod -Uri http://localhost:4000/properties/1/rent | ConvertTo-Json -Depth 5
+```
+
+Then log in as an investor and look at `GET /rent/received` or `GET /wallet`.
+
+## Property papers on IPFS
+
+**IPFS** is a peer-to-peer file network, a bit like torrents. Every file gets a **CID**: a fingerprint made from the file's content. Change one letter and the CID changes.
+
+- When an owner lists a property with papers, the server puts the file on IPFS and saves `ipfs://<CID>` in the new contract.
+- Later, the owner, an admin or the Land Authority can add more papers (rent agreement, tax receipt...). Each CID is saved in the contract with `addDocument()`.
+- `GET /properties/:id/documents` lists the papers and says `verified: true` when the CID matches the one in the contract.
+- You can open a paper through the API (`url`) or straight from IPFS in your browser (`ipfsUrl`, like `http://localhost:8080/ipfs/<CID>`).
+- Files on IPFS are **public**. That's fine for property papers, but ID cards from KYC are never put there: they stay private on the server.
+
+Our IPFS node runs in Docker next to the database (`backend/docker-compose.yml`).
 
 ### API list
 
@@ -267,7 +318,7 @@ Send the login token as a header: `Authorization: Bearer <token>`.
 | GET | `/wallet/deposits` | logged in | Your deposits |
 | POST | `/wallet/deposits/:id/verify` | depositor | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }`, then the money is added |
 | POST | `/wallet/deposits/:id/mock-pay` | depositor | Fake payment (only when no Razorpay keys are set) |
-| POST | `/wallet/withdraw` | investor | `{ amount }`, send money back to your bank (simulated) |
+| POST | `/wallet/withdraw` | investor, owner | `{ amount }`, send money back to your bank (simulated) |
 | POST | `/trading/orders` | investor (KYC done) | `{ propertyId, side: "buy" or "sell", shares, price }`, matches right away |
 | GET | `/trading/orders` | logged in | Your orders (`?status=open`, `?propertyId=1`) |
 | GET | `/trading/orders/:id` | owner of the order | One order and its trades |
@@ -280,6 +331,17 @@ Send the login token as a header: `Authorization: Bearer <token>`.
 | GET | `/market/:id/orderbook` | anyone | Bids and asks, grouped by price |
 | GET | `/market/:id/trades` | anyone | Latest trades (`?limit=50`) |
 | GET | `/market/:id/candles` | anyone | Chart candles. `?interval=1m`, `5m`, `15m`, `1h` or `1d`, and `?limit=200` |
+| POST | `/properties/:id/rent` | the property's owner, admin | `{ amount, period }` in rupees, returns the payout and the Razorpay Checkout details |
+| GET | `/properties/:id/rent` | anyone | Rent payouts that were shared out |
+| GET | `/rent` | owner, admin | Payouts you paid (admin: all). `?status=paid` shows ones still waiting |
+| GET | `/rent/:id` | payer, admin | One payout |
+| POST | `/rent/:id/verify` | payer, admin | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }`, then the rent is shared out |
+| POST | `/rent/:id/mock-pay` | payer, admin | Fake payment (only when no Razorpay keys are set) |
+| POST | `/rent/:id/retry` | payer, admin | Share out a `paid` payout again |
+| GET | `/rent/received` | logged in | Rent you received, and the total |
+| GET | `/properties/:id/documents` | anyone | The property's papers, each checked against the chain |
+| POST | `/properties/:id/documents` | the property's owner, admin, land authority | Form: `kind` (sale-deed, title-report, tax-receipt, rent-agreement, valuation, photo, other) and file `document` |
+| GET | `/properties/:id/documents/:docId/file` | anyone | Download a paper from IPFS |
 
 If you change the contract, copy the new version into the backend: `cd contracts`, then `npm run compile` and `npm run export-abi`.
 

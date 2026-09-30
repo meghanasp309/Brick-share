@@ -95,7 +95,7 @@ test("the full listing story: KYC, list, approve, freeze", async () => {
   const property = listed.body.property;
   assert.strictEqual(property.symbol, "WFV");
   assert.strictEqual(property.status, "pending");
-  assert.match(property.documentHash, /^sha256:[0-9a-f]{64}$/);
+  assert.match(property.documentHash, /^ipfs:\/\/b[a-z2-7]+$/); // the papers are on IPFS
   assert.match(property.contractAddress, /^0x/);
 
   // The already-verified investor was whitelisted on the new contract.

@@ -152,7 +152,7 @@ CREATE INDEX IF NOT EXISTS trades_seller_idx ON trades (seller_id);
 CREATE TABLE IF NOT EXISTS cash_entries (
   id           SERIAL PRIMARY KEY,
   user_id      INTEGER NOT NULL REFERENCES users(id),
-  kind         TEXT NOT NULL CHECK (kind IN ('deposit', 'withdrawal', 'buy', 'sell')),
+  kind         TEXT NOT NULL CHECK (kind IN ('deposit', 'withdrawal', 'buy', 'sell', 'rent')),
   amount_paise BIGINT NOT NULL,
   deposit_id   INTEGER REFERENCES deposits(id),
   trade_id     INTEGER REFERENCES trades(id),
@@ -160,3 +160,58 @@ CREATE TABLE IF NOT EXISTS cash_entries (
 );
 
 CREATE INDEX IF NOT EXISTS cash_entries_user_idx ON cash_entries (user_id, id);
+
+-- ---------- Phase 5: rent payouts and documents on IPFS ----------
+
+-- Rent paid by an owner (or admin) for one property, then shared out to
+-- everyone holding shares, in proportion to their shares.
+--   created     -> waiting for payment
+--   paid        -> money received; now recording it on the chain
+--   distributed -> recorded on the chain, and every holder's wallet was credited
+-- A paid payout on a frozen property waits (failure_reason says why) and is
+-- shared out automatically when the Land Authority unfreezes it.
+CREATE TABLE IF NOT EXISTS rent_payouts (
+  id                  SERIAL PRIMARY KEY,
+  property_id         INTEGER NOT NULL REFERENCES properties(id),
+  paid_by             INTEGER NOT NULL REFERENCES users(id),
+  amount_paise        BIGINT NOT NULL CHECK (amount_paise > 0),
+  period              TEXT NOT NULL DEFAULT '', -- e.g. "October 2026"
+  status              TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'paid', 'distributed')),
+  payment_mode        TEXT NOT NULL CHECK (payment_mode IN ('razorpay', 'mock')),
+  razorpay_order_id   TEXT NOT NULL UNIQUE,
+  razorpay_payment_id TEXT UNIQUE,
+  tx_hash             TEXT,
+  chain_payout_id     INTEGER, -- the payout's number in the property contract
+  snapshot_id         INTEGER, -- share balances were counted at this snapshot
+  failure_reason      TEXT,
+  paid_at             TIMESTAMPTZ,
+  distributed_at      TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS rent_payouts_property_idx ON rent_payouts (property_id, id);
+
+-- Rent lands in the rupee wallet as a 'rent' entry.
+ALTER TABLE cash_entries ADD COLUMN IF NOT EXISTS rent_payout_id INTEGER REFERENCES rent_payouts(id);
+-- Databases made before phase 5 don't allow 'rent' yet.
+ALTER TABLE cash_entries DROP CONSTRAINT IF EXISTS cash_entries_kind_check;
+ALTER TABLE cash_entries ADD CONSTRAINT cash_entries_kind_check
+  CHECK (kind IN ('deposit', 'withdrawal', 'buy', 'sell', 'rent'));
+
+-- Property papers stored on IPFS. The CID (the file's fingerprint) is also
+-- saved in the property contract, so anyone can check a file wasn't changed.
+CREATE TABLE IF NOT EXISTS property_documents (
+  id          SERIAL PRIMARY KEY,
+  property_id INTEGER NOT NULL REFERENCES properties(id),
+  kind        TEXT NOT NULL,
+  cid         TEXT NOT NULL,
+  chain_index INTEGER, -- position in the contract's document list; NULL = the listing papers (documentHash)
+  file_name   TEXT NOT NULL,
+  mime_type   TEXT NOT NULL,
+  size_bytes  INTEGER NOT NULL,
+  uploaded_by INTEGER REFERENCES users(id),
+  tx_hash     TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS property_documents_property_idx ON property_documents (property_id, id);
