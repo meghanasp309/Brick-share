@@ -19,7 +19,7 @@ const v = require("../validate");
 
 const router = express.Router();
 
-// Keeps one order under ₹10 crore, far below the size where numbers lose precision.
+// Keeps one order under ₹1 crore, far below the size where numbers lose precision.
 const MAX_AMOUNT_PAISE = 10_000_000_00;
 
 const publicOrder = (o) => ({
@@ -145,7 +145,7 @@ router.post("/orders", requireAuth, requireRole("investor"), requireKyc, async (
 
   const pricePaise = Math.round(Number(p.price_per_share) * 100);
   const amountPaise = pricePaise * shares;
-  if (amountPaise > MAX_AMOUNT_PAISE) throw new HttpError(400, "One order can be at most ₹10 crore");
+  if (amountPaise > MAX_AMOUNT_PAISE) throw new HttpError(400, "One order can be at most ₹1 crore");
 
   // Lock the property row so two buyers can't reserve the same last shares.
   const client = await db.pool.connect();

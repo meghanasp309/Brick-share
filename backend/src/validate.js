@@ -23,4 +23,18 @@ function oneOf(body, field, options) {
   return value;
 }
 
-module.exports = { text, positive, oneOf };
+/**
+ * A rupee amount like 105 or 105.50, returned in paise (1 rupee = 100 paise)
+ * so we never do maths with rounding errors. Throws a 400 if it's not valid.
+ */
+function rupees(body, field, { max }) {
+  const value = Number(body[field]);
+  const paise = Math.round(value * 100);
+  if (!Number.isFinite(value) || value <= 0 || Math.abs(value * 100 - paise) > 1e-6) {
+    throw new HttpError(400, `${field} must be a positive amount in rupees, with at most 2 decimals`);
+  }
+  if (paise > max) throw new HttpError(400, `${field} can be at most ₹${(max / 100).toLocaleString("en-IN")}`);
+  return paise;
+}
+
+module.exports = { text, positive, oneOf, rupees };

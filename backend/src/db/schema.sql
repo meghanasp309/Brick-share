@@ -77,3 +77,86 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE INDEX IF NOT EXISTS orders_user_idx ON orders (user_id);
 CREATE INDEX IF NOT EXISTS orders_property_idx ON orders (property_id);
+
+-- ---------- Phase 4: rupee wallet and stock-app trading ----------
+
+-- Each investor's rupee balance inside the app (test money).
+-- Money comes in through Razorpay (test mode) and is used to buy shares
+-- from other investors. Every change is also written to cash_entries.
+CREATE TABLE IF NOT EXISTS cash_accounts (
+  user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  balance_paise BIGINT NOT NULL DEFAULT 0 CHECK (balance_paise >= 0)
+);
+
+-- Adding money to the wallet.
+--   created -> waiting for payment
+--   paid    -> money is in the wallet
+CREATE TABLE IF NOT EXISTS deposits (
+  id                  SERIAL PRIMARY KEY,
+  user_id             INTEGER NOT NULL REFERENCES users(id),
+  amount_paise        BIGINT NOT NULL CHECK (amount_paise > 0),
+  status              TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'paid')),
+  payment_mode        TEXT NOT NULL CHECK (payment_mode IN ('razorpay', 'mock')),
+  razorpay_order_id   TEXT NOT NULL UNIQUE,
+  razorpay_payment_id TEXT UNIQUE,
+  paid_at             TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Buy and sell orders on the order book (limit orders).
+--   open      -> waiting on the book (maybe partly filled)
+--   filled    -> all shares traded
+--   cancelled -> the investor cancelled the rest
+CREATE TABLE IF NOT EXISTS book_orders (
+  id            SERIAL PRIMARY KEY,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  property_id   INTEGER NOT NULL REFERENCES properties(id),
+  side          TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
+  price_paise   BIGINT NOT NULL CHECK (price_paise > 0), -- limit price per share
+  shares        INTEGER NOT NULL CHECK (shares > 0),
+  filled_shares INTEGER NOT NULL DEFAULT 0 CHECK (filled_shares >= 0 AND filled_shares <= shares),
+  status        TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'filled', 'cancelled')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS book_orders_open_idx ON book_orders (property_id, side, price_paise, id) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS book_orders_user_idx ON book_orders (user_id);
+
+-- A match between a buy order and a sell order.
+--   settling -> matched; shares are moving on the chain
+--   settled  -> shares moved; money moved from buyer to seller
+--   failed   -> the chain said no (e.g. frozen). Money and shares stay held. Can be retried.
+CREATE TABLE IF NOT EXISTS trades (
+  id             SERIAL PRIMARY KEY,
+  property_id    INTEGER NOT NULL REFERENCES properties(id),
+  buy_order_id   INTEGER NOT NULL REFERENCES book_orders(id),
+  sell_order_id  INTEGER NOT NULL REFERENCES book_orders(id),
+  buyer_id       INTEGER NOT NULL REFERENCES users(id),
+  seller_id      INTEGER NOT NULL REFERENCES users(id),
+  shares         INTEGER NOT NULL CHECK (shares > 0),
+  price_paise    BIGINT NOT NULL CHECK (price_paise > 0),
+  amount_paise   BIGINT NOT NULL CHECK (amount_paise > 0),
+  status         TEXT NOT NULL DEFAULT 'settling' CHECK (status IN ('settling', 'settled', 'failed')),
+  tx_hash        TEXT,
+  failure_reason TEXT,
+  settled_at     TIMESTAMPTZ,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS trades_property_idx ON trades (property_id, created_at);
+CREATE INDEX IF NOT EXISTS trades_buyer_idx ON trades (buyer_id);
+CREATE INDEX IF NOT EXISTS trades_seller_idx ON trades (seller_id);
+
+-- Every change to a rupee balance: + money in, - money out.
+CREATE TABLE IF NOT EXISTS cash_entries (
+  id           SERIAL PRIMARY KEY,
+  user_id      INTEGER NOT NULL REFERENCES users(id),
+  kind         TEXT NOT NULL CHECK (kind IN ('deposit', 'withdrawal', 'buy', 'sell')),
+  amount_paise BIGINT NOT NULL,
+  deposit_id   INTEGER REFERENCES deposits(id),
+  trade_id     INTEGER REFERENCES trades(id),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS cash_entries_user_idx ON cash_entries (user_id, id);
