@@ -18,8 +18,10 @@ import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol
 ///  2. Land Authority checks the papers and calls approveProperty().
 ///     All shares are then minted to the property owner.
 ///  3. Whitelisted investors can buy/sell shares (transfers).
-///  4. If there is a legal dispute, the Land Authority can freeze() it.
-///     While frozen, no shares can move at all, and no rent is paid.
+///  4. If there is a legal dispute, the Land Authority can freeze() it, even
+///     while it is still Pending. While frozen, no shares can move at all, no
+///     rent is paid, and a Pending property cannot be approved (the mint in
+///     approveProperty() is blocked by _update below).
 ///  5. Each month BrickShare records a rent payout (distributeRent). The
 ///     contract takes a "snapshot" of who held how many shares at that
 ///     moment, and says how much of the rent each holder gets.

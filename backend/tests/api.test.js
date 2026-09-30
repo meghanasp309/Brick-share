@@ -106,6 +106,15 @@ test("the full listing story: KYC, list, approve, freeze", async () => {
     status: "pending", frozen: false, freezeReason: null, sharesIssued: 0, ownerShares: 0,
   });
 
+  // It can be frozen before approval, and then it can't be approved.
+  await api().post(`/properties/${property.id}/freeze`).set(auth(laToken)).send({ reason: "Papers unclear" }).expect(200);
+  const refused = await api().post(`/properties/${property.id}/approve`).set(auth(laToken)).expect(409);
+  assert.match(refused.body.error, /frozen \(Papers unclear\)/);
+  detail = await api().get(`/properties/${property.id}`).expect(200);
+  assert.strictEqual(detail.body.onChain.status, "pending");
+  assert.strictEqual(detail.body.onChain.frozen, true);
+  await api().post(`/properties/${property.id}/unfreeze`).set(auth(laToken)).expect(200);
+
   // Only the Land Authority can approve.
   await api().post(`/properties/${property.id}/approve`).set(auth(owner.token)).expect(403);
   await api().post(`/properties/${property.id}/approve`).set(auth(laToken)).expect(200);

@@ -2,7 +2,8 @@
 //
 //  1. An owner (with approved KYC) lists a property -> the contract is deployed (Pending).
 //  2. The Land Authority checks the papers and approves it -> all shares go to the owner.
-//  3. The Land Authority can freeze / unfreeze it if there is a legal dispute.
+//  3. The Land Authority can freeze / unfreeze it if there is a legal dispute,
+//     even before approving it. A frozen property can't be approved.
 const crypto = require("crypto");
 const express = require("express");
 const db = require("../db");
@@ -125,6 +126,8 @@ const la = [requireAuth, requireRole("land_authority")];
 
 router.post("/properties/:id/approve", ...la, async (req, res) => {
   const p = await findProperty(req.params.id);
+  // The contract refuses too; this just gives a clearer message.
+  if (p.frozen) throw new HttpError(409, `This property is frozen (${p.freeze_reason}). Unfreeze it before approving`);
   const tx = await chain.approveProperty(p.contract_address, chain.userSigner(req.user));
   await db.query("UPDATE properties SET status = 'approved', approved_at = now() WHERE id = $1", [p.id]);
   res.json({ property: publicProperty(await findProperty(p.id)), transaction: tx });

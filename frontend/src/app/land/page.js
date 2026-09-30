@@ -57,6 +57,12 @@ const DONE_TEXT = {
   unfreeze: "unfrozen. Trading is open again.",
 };
 
+// A pending property has no shares yet, so freezing it just stops the approval.
+const PENDING_DONE_TEXT = {
+  freeze: "frozen. It can't be approved until you unfreeze it.",
+  unfreeze: "unfrozen. You can approve it now.",
+};
+
 function PropertyRow({ p, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -74,7 +80,8 @@ function PropertyRow({ p, onDone }) {
     setError(null);
     try {
       await api(`/properties/${p.id}/${action}`, { method: "POST", body });
-      onDone(`${p.name}: ${DONE_TEXT[action]}`);
+      const text = (p.status === "pending" && PENDING_DONE_TEXT[action]) || DONE_TEXT[action];
+      onDone(`${p.name}: ${text}`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -95,8 +102,8 @@ function PropertyRow({ p, onDone }) {
       actions={
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setOpen(!open)}>{open ? "Hide papers" : "Check papers"}</Button>
-          {p.status === "pending" && <Button variant="buy" busy={busy} onClick={() => act("approve")}>Approve</Button>}
-          {p.status === "approved" && !p.frozen && <Button variant="danger" busy={busy} onClick={() => act("freeze")}>Freeze</Button>}
+          {p.status === "pending" && !p.frozen && <Button variant="buy" busy={busy} onClick={() => act("approve")}>Approve</Button>}
+          {!p.frozen && <Button variant="danger" busy={busy} onClick={() => act("freeze")}>Freeze</Button>}
           {p.frozen && <Button busy={busy} onClick={() => act("unfreeze")}>Unfreeze</Button>}
         </div>
       }
@@ -107,6 +114,9 @@ function PropertyRow({ p, onDone }) {
         <div><span className="text-muted">Shares:</span> {count(p.totalShares)} at {rupees(p.pricePerShare)}</div>
         <div><span className="text-muted">Listed:</span> {date(p.createdAt)}</div>
       </div>
+      {p.status === "pending" && p.frozen && (
+        <p className="mt-4 text-sm text-muted">Frozen properties cannot be approved. Unfreeze it first.</p>
+      )}
       {error && <div className="mt-4"><Alert>{error}</Alert></div>}
       {open && (
         <div className="mt-4 space-y-4">
