@@ -9,7 +9,7 @@ import { count, date, rupees } from "@/lib/format";
 import AddDocument from "@/components/AddDocument";
 import Documents from "@/components/Documents";
 import RequireLogin from "@/components/RequireLogin";
-import { Alert, Badge, Button, Card, Loading, Page, StatusBadge } from "@/components/ui";
+import { Alert, Badge, Button, Card, Field, Input, Loading, Page, Select, StatusBadge } from "@/components/ui";
 
 export default function LandPage() {
   return (
@@ -59,34 +59,44 @@ const DONE_TEXT = {
 
 // A pending property has no shares yet, so freezing it just stops the approval.
 const PENDING_DONE_TEXT = {
-  freeze: "frozen. It can't be approved until you unfreeze it.",
-  unfreeze: "unfrozen. You can approve it now.",
+  freeze: "frozen. Approve it later if the papers turn out fine.",
+  unfreeze: "unfrozen.",
 };
+
+// Common reasons to freeze. "Other" lets the Land Authority type their own.
+const FREEZE_REASONS = ["Fraud", "Court case", "Litigation", "Ownership dispute", "Fake or unclear papers"];
+const OTHER = "Other";
 
 function PropertyRow({ p, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(false);
+  const [freezing, setFreezing] = useState(false);
   const docs = useLoad(() => (open ? api(`/properties/${p.id}/documents`) : Promise.resolve(null)), [open, p.id]);
 
-  async function act(action) {
-    let body;
-    if (action === "freeze") {
-      const reason = window.prompt("Why freeze it? (e.g. Legal dispute over ownership)");
-      if (!reason) return;
-      body = { reason };
-    }
+  async function run(steps, doneText) {
     setBusy(true);
     setError(null);
     try {
-      await api(`/properties/${p.id}/${action}`, { method: "POST", body });
-      const text = (p.status === "pending" && PENDING_DONE_TEXT[action]) || DONE_TEXT[action];
-      onDone(`${p.name}: ${text}`);
+      for (const [action, body] of steps) await api(`/properties/${p.id}/${action}`, { method: "POST", body });
+      setFreezing(false);
+      onDone(`${p.name}: ${doneText}`);
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  const text = (action) => (p.status === "pending" && PENDING_DONE_TEXT[action]) || DONE_TEXT[action];
+
+  function approve() {
+    // The blockchain won't approve a frozen property, so unfreeze it first.
+    if (p.frozen) {
+      if (!window.confirm(`This property is frozen (${p.freezeReason}). Unfreeze and approve it?`)) return;
+      return run([["unfreeze"], ["approve"]], DONE_TEXT.approve);
+    }
+    run([["approve"]], DONE_TEXT.approve);
   }
 
   return (
@@ -100,11 +110,11 @@ function PropertyRow({ p, onDone }) {
         </span>
       }
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => setOpen(!open)}>{open ? "Hide papers" : "Check papers"}</Button>
-          {p.status === "pending" && !p.frozen && <Button variant="buy" busy={busy} onClick={() => act("approve")}>Approve</Button>}
-          {!p.frozen && <Button variant="danger" busy={busy} onClick={() => act("freeze")}>Freeze</Button>}
-          {p.frozen && <Button busy={busy} onClick={() => act("unfreeze")}>Unfreeze</Button>}
+          {p.status === "pending" && <Button variant="buy" busy={busy} onClick={approve}>Approve</Button>}
+          {!p.frozen && <Button variant="danger" busy={busy} onClick={() => setFreezing(!freezing)}>Freeze</Button>}
+          {p.frozen && <Button busy={busy} onClick={() => run([["unfreeze"]], text("unfreeze"))}>Unfreeze</Button>}
         </div>
       }
     >
@@ -114,8 +124,8 @@ function PropertyRow({ p, onDone }) {
         <div><span className="text-muted">Shares:</span> {count(p.totalShares)} at {rupees(p.pricePerShare)}</div>
         <div><span className="text-muted">Listed:</span> {date(p.createdAt)}</div>
       </div>
-      {p.status === "pending" && p.frozen && (
-        <p className="mt-4 text-sm text-muted">Frozen properties cannot be approved. Unfreeze it first.</p>
+      {freezing && !p.frozen && (
+        <FreezeForm busy={busy} onCancel={() => setFreezing(false)} onFreeze={(reason) => run([["freeze", { reason }]], text("freeze"))} />
       )}
       {error && <div className="mt-4"><Alert>{error}</Alert></div>}
       {open && (
@@ -125,5 +135,35 @@ function PropertyRow({ p, onDone }) {
         </div>
       )}
     </Card>
+  );
+}
+
+function FreezeForm({ busy, onFreeze, onCancel }) {
+  const [choice, setChoice] = useState(FREEZE_REASONS[0]);
+  const [other, setOther] = useState("");
+  const reason = choice === OTHER ? other.trim() : choice;
+
+  function submit(e) {
+    e.preventDefault();
+    if (reason) onFreeze(reason);
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-4 space-y-3 rounded-lg border border-line p-4">
+      <Field label="Why freeze it?">
+        <Select value={choice} onChange={(e) => setChoice(e.target.value)}>
+          {[...FREEZE_REASONS, OTHER].map((r) => <option key={r}>{r}</option>)}
+        </Select>
+      </Field>
+      {choice === OTHER && (
+        <Field label="Write the reason">
+          <Input value={other} maxLength={200} onChange={(e) => setOther(e.target.value)} placeholder="e.g. Tax not paid on the land" autoFocus />
+        </Field>
+      )}
+      <div className="flex gap-2">
+        <Button type="submit" variant="danger" busy={busy} disabled={!reason}>Freeze</Button>
+        <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>
+      </div>
+    </form>
   );
 }
