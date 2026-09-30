@@ -1,7 +1,8 @@
 "use client";
-// For BrickShare admins: check IDs (KYC), see users, and fix stuck payments.
+// For BrickShare admins: check IDs (KYC), see users and properties, and fix stuck payments.
 import { useState } from "react";
 import { api, openProtectedFile } from "@/lib/api";
+import { confirmDelete } from "@/lib/deleteProperty";
 import { useLoad } from "@/lib/useLoad";
 import { count, date, rupees, shortHash } from "@/lib/format";
 import RequireLogin from "@/components/RequireLogin";
@@ -15,7 +16,7 @@ export default function AdminPage() {
   );
 }
 
-const TABS = [["kyc", "KYC to check"], ["users", "Users"], ["stuck", "Stuck payments"]];
+const TABS = [["kyc", "KYC to check"], ["users", "Users"], ["properties", "Properties"], ["stuck", "Stuck payments"]];
 
 function Admin() {
   const [tab, setTab] = useState("kyc");
@@ -34,6 +35,7 @@ function Admin() {
       </div>
       {tab === "kyc" && <KycQueue />}
       {tab === "users" && <Users />}
+      {tab === "properties" && <Properties />}
       {tab === "stuck" && <Stuck />}
     </Page>
   );
@@ -119,6 +121,48 @@ function Users() {
           { label: "KYC", render: (u) => <StatusBadge status={u.kycStatus} /> },
           { label: "Wallet", render: (u) => <code className="text-xs" title={u.walletAddress}>{shortHash(u.walletAddress)}</code> },
           { label: "Joined", render: (u) => date(u.createdAt) },
+        ]}
+      />
+    </Card>
+  );
+}
+
+// Every property. A property can be deleted while no investor holds its shares.
+function Properties() {
+  const { data, error, loading, reload } = useLoad(() => api("/properties"), []);
+  const [busy, setBusy] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  async function remove(p) {
+    if (!confirmDelete(p)) return;
+    setBusy(p.id);
+    setMsg(null);
+    try {
+      await api(`/properties/${p.id}`, { method: "DELETE" });
+      setMsg({ tone: "success", text: `${p.name} deleted.` });
+      reload();
+    } catch (err) {
+      setMsg({ tone: "error", text: `${p.name}: ${err.message}` });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (loading) return <Loading />;
+  return (
+    <Card>
+      <Alert>{error}</Alert>
+      {msg && <div className="mb-4"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
+      <Table
+        rows={data?.properties}
+        empty="No properties yet."
+        columns={[
+          { label: "Property", render: (p) => <div><div className="font-medium">{p.name}</div><div className="text-xs text-muted">{p.location}</div></div> },
+          { label: "Owner", render: (p) => p.owner.fullName },
+          { label: "Status", render: (p) => <span className="flex gap-1"><StatusBadge status={p.status} />{p.frozen && <Badge tone="red">Frozen</Badge>}</span> },
+          { label: "Shares", align: "right", render: (p) => count(p.totalShares) },
+          { label: "Listed", render: (p) => date(p.createdAt) },
+          { label: "", render: (p) => <Button variant="danger" busy={busy === p.id} onClick={() => remove(p)}>Delete</Button> },
         ]}
       />
     </Card>

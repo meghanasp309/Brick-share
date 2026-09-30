@@ -42,7 +42,7 @@ const publicOrder = (o) => ({
   createdAt: o.created_at,
 });
 
-const SELECT = `SELECT o.*, p.name AS property_name, p.symbol AS property_symbol
+const SELECT = `SELECT o.*, p.name AS property_name, p.symbol AS property_symbol, p.deleted_at AS property_deleted_at
                 FROM orders o JOIN properties p ON p.id = o.property_id`;
 
 /**
@@ -143,6 +143,7 @@ async function markPaid(orderId, paymentId) {
 async function confirmPayment(order, proof) {
   if (order.status === "completed") return order; // already done (e.g. the app sent it twice)
   if (order.status !== "created") throw new HttpError(409, `This order is already ${order.status}`);
+  if (order.property_deleted_at) throw new HttpError(409, "This property was removed by its owner, so it can't be bought");
 
   const { razorpay_order_id: rzpOrderId, razorpay_payment_id: paymentId, razorpay_signature: signature } = proof;
   if (rzpOrderId !== order.razorpay_order_id) throw new HttpError(400, "razorpay_order_id doesn't match this order");
@@ -184,6 +185,7 @@ router.post("/orders", requireAuth, requireRole("investor"), requireKyc, async (
   );
   const p = props[0];
   if (!p) throw new HttpError(404, "Property not found");
+  if (p.deleted_at) throw new HttpError(409, "This property was removed by its owner");
 
   const onChain = await chain.readProperty(p.contract_address, p.owner_wallet);
   if (onChain.status !== "approved") throw new HttpError(409, "This property is not approved for sale yet");
@@ -201,7 +203,8 @@ router.post("/orders", requireAuth, requireRole("investor"), requireKyc, async (
   let orderId;
   try {
     await client.query("BEGIN");
-    await client.query("SELECT id FROM properties WHERE id = $1 FOR UPDATE", [p.id]);
+    const { rows: locked } = await client.query("SELECT deleted_at FROM properties WHERE id = $1 FOR UPDATE", [p.id]);
+    if (locked[0].deleted_at) throw new HttpError(409, "This property was removed by its owner");
     const available = onChain.ownerShares - (await reservedShares(p.id, client));
     if (shares > available) {
       throw new HttpError(409, available > 0 ? `Only ${available} shares are left` : "All shares are sold out");

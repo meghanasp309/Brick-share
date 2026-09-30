@@ -237,3 +237,10 @@ CREATE TABLE IF NOT EXISTS rent_schedules (
 ALTER TABLE rent_payouts DROP CONSTRAINT IF EXISTS rent_payouts_payment_mode_check;
 ALTER TABLE rent_payouts ADD CONSTRAINT rent_payouts_payment_mode_check
   CHECK (payment_mode IN ('razorpay', 'mock', 'wallet'));
+
+-- ---------- Deleting a property ----------
+
+-- A removed property is hidden from the app. Its contract stays on the
+-- blockchain (nothing can be erased there), so we keep the row too.
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS deleted_by INTEGER REFERENCES users(id);

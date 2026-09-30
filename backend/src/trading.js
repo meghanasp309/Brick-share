@@ -70,6 +70,7 @@ async function tradableProperty(propertyId, user) {
   );
   const p = rows[0];
   if (!p) throw new HttpError(404, "Property not found");
+  if (p.deleted_at) throw new HttpError(409, "This property was removed by its owner");
   const onChain = await chain.readProperty(p.contract_address, p.owner_wallet);
   if (onChain.status !== "approved") throw new HttpError(409, "This property is not approved for trading yet");
   if (onChain.frozen) throw new HttpError(409, `This property is frozen: ${onChain.freezeReason}`);
@@ -206,6 +207,25 @@ async function cancelOrder(user, orderId) {
   });
   await announce(order.property_id, [order], []);
   return order;
+}
+
+/**
+ * Cancels every open order of a property (used when it is deleted).
+ * Run inside a transaction; call announceCancelled with the result after it commits.
+ */
+async function cancelPropertyOrders(client, propertyId) {
+  await lockBook(client, propertyId);
+  const { rows } = await client.query(
+    `UPDATE book_orders SET status = 'cancelled', updated_at = now()
+     WHERE property_id = $1 AND status = 'open' RETURNING *`,
+    [propertyId]
+  );
+  return rows;
+}
+
+/** Tells each person their order was cancelled and their money is free again. */
+async function announceCancelled(propertyId, orders) {
+  if (orders.length) await announce(propertyId, orders, []);
 }
 
 // ---------- Settlement on the blockchain ----------
@@ -479,7 +499,7 @@ async function announceTrade(t, { wallets }) {
 
 module.exports = {
   INTERVALS, MAX_PRICE_PAISE, publicOrder, marketTrade, myTrade,
-  placeOrder, cancelOrder, sellableShares,
+  placeOrder, cancelOrder, cancelPropertyOrders, announceCancelled, sellableShares,
   settleTrade, retryTrade, retryFailedTrades, resumeSettlement, idle, announceStatus,
   orderBook, ticker, candles, recentTrades, lastPrices,
 };

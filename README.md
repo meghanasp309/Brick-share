@@ -396,6 +396,7 @@ Send the login token as a header: `Authorization: Bearer <token>`.
 | GET | `/properties` | anyone | All listings (`?status=pending` or `approved`) |
 | GET | `/properties/:id` | anyone | One listing, its live state from the chain, and `sharesForSale` |
 | POST | `/properties` | owner (KYC done) | Form: `name`, `symbol`, `location`, `description`, `totalShares`, `pricePerShare`, optional file `papers` |
+| DELETE | `/properties/:id` | owner (own) or admin | Delete a pending property, or an approved one no investor holds shares of. Cancels open orders and stops monthly rent. The contract stays on the chain |
 | POST | `/properties/:id/approve` | land authority | Approve on-chain, shares go to the owner |
 | POST | `/properties/:id/freeze` | land authority | `{ reason }` |
 | POST | `/properties/:id/unfreeze` | land authority | Lift the freeze |

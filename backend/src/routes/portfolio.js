@@ -27,7 +27,7 @@ router.get("/portfolio", requireAuth, async (req, res) => {
          JOIN rent_payouts r ON r.id = e.rent_payout_id
          WHERE e.user_id = $1 AND e.kind = 'rent' AND r.property_id = p.id) AS rent_paise
      FROM properties p
-     WHERE p.status = 'approved'
+     WHERE p.status = 'approved' AND p.deleted_at IS NULL
      ORDER BY p.id`,
     [req.user.id]
   );
@@ -69,7 +69,7 @@ router.get("/portfolio", requireAuth, async (req, res) => {
 // Every share movement in or out of your wallet, newest first.
 router.get("/transactions", requireAuth, async (req, res) => {
   const wallet = req.user.wallet_address;
-  const { rows: props } = await db.query("SELECT * FROM properties WHERE status = 'approved' ORDER BY id");
+  const { rows: props } = await db.query("SELECT * FROM properties WHERE status = 'approved' AND deleted_at IS NULL ORDER BY id");
   const { rows: orders } = await db.query(
     // Your purchases, and (if you are an owner) the shares you sold.
     `SELECT o.id, o.tx_hash, o.amount_paise FROM orders o JOIN properties p ON p.id = o.property_id

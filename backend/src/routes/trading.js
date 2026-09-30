@@ -14,7 +14,7 @@ const idParam = (value) => v.positive({ id: value }, "id", { integer: true, max:
 
 // Every approved property with its price, 24h change and volume.
 router.get("/market", async (_req, res) => {
-  const { rows } = await db.query("SELECT id FROM properties WHERE status = 'approved' ORDER BY id");
+  const { rows } = await db.query("SELECT id FROM properties WHERE status = 'approved' AND deleted_at IS NULL ORDER BY id");
   res.json({ markets: await Promise.all(rows.map((p) => trading.ticker(p.id))) });
 });
 

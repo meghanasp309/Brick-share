@@ -67,7 +67,7 @@ async function payMonth(propertyId, { early = false } = {}) {
   const result = await cash.inTransaction(async (client) => {
     // Lock the schedule so the same month is never paid twice.
     const { rows } = await client.query(
-      `SELECT s.*, p.owner_id, p.status, p.frozen, p.freeze_reason, s.next_due_at <= now() AS due
+      `SELECT s.*, p.owner_id, p.status, p.frozen, p.freeze_reason, p.deleted_at, s.next_due_at <= now() AS due
        FROM rent_schedules s JOIN properties p ON p.id = s.property_id
        WHERE s.property_id = $1 FOR UPDATE OF s`,
       [propertyId]
@@ -80,6 +80,7 @@ async function payMonth(propertyId, { early = false } = {}) {
       await client.query("UPDATE rent_schedules SET last_error = $2 WHERE property_id = $1", [propertyId, reason]);
       return { skipped: reason };
     };
+    if (s.deleted_at) return skip("The property was removed");
     if (s.status !== "approved") return skip("The property is not approved yet");
     if (s.frozen) return skip(`The property is frozen (${s.freeze_reason}). Rent starts again when it is unfrozen`);
 
