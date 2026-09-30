@@ -41,7 +41,7 @@ const publicPayout = (r) => ({
 
 async function findPayout(id) {
   const { rows } = await db.query(
-    `SELECT r.*, p.contract_address, p.owner_id FROM rent_payouts r
+    `SELECT r.*, p.contract_address, p.deploy_block, p.owner_id FROM rent_payouts r
      JOIN properties p ON p.id = r.property_id WHERE r.id = $1`,
     [id]
   );
@@ -130,7 +130,7 @@ async function doDistribute(payoutId) {
 
   // Ask the contract how much each holder gets.
   const { snapshotId } = await chain.rentPayout(contract, chainId);
-  const wallets = await chain.everHolders(contract);
+  const wallets = await chain.everHolders(contract, r.deploy_block ?? 0);
   const owed = await Promise.all(wallets.map((w) => chain.rentOwed(contract, chainId, w)));
   const { rows: users } = await db.query(
     "SELECT id, wallet_address FROM users WHERE lower(wallet_address) = ANY($1)",

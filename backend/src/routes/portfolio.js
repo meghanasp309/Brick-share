@@ -84,7 +84,7 @@ router.get("/transactions", requireAuth, async (req, res) => {
   );
   const tradeByTx = new Map(trades.map((t) => [t.tx_hash.toLowerCase(), t]));
 
-  const perProperty = await Promise.all(props.map((p) => chain.transfersOf(p.contract_address, wallet)));
+  const perProperty = await Promise.all(props.map((p) => chain.transfersOf(p.contract_address, wallet, p.deploy_block ?? 0)));
   const transactions = perProperty.flatMap((events, i) => {
     const p = props[i];
     return events.map((e) => {

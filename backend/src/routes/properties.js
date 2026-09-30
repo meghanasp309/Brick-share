@@ -95,17 +95,17 @@ router.post(
     const { rows: la } = await db.query("SELECT wallet_address FROM users WHERE role = 'land_authority' LIMIT 1");
     if (!la[0]) throw new HttpError(500, "No Land Authority account exists");
 
-    const contractAddress = await chain.deployProperty({
+    const deployed = await chain.deployProperty({
       name, symbol, propertyId: ref, documentHash, totalShares,
       owner: req.user.wallet_address, landAuthority: la[0].wallet_address,
     });
 
     const { rows } = await db.query(
       `INSERT INTO properties (ref, owner_id, name, symbol, location, description, total_shares,
-                               price_per_share, document_hash, contract_address)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+                               price_per_share, document_hash, contract_address, deploy_block)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
       [ref, req.user.id, name, symbol, location, description, totalShares,
-       pricePerShare, documentHash, contractAddress]
+       pricePerShare, documentHash, deployed.address, deployed.block]
     );
     if (papersCid) await saveListingPapers(rows[0].id, req.file, papersCid, req.user.id);
 
@@ -114,7 +114,7 @@ router.post(
       "SELECT wallet_address FROM users WHERE kyc_status = 'approved' AND id <> $1",
       [req.user.id]
     );
-    for (const u of verified) await chain.addToWhitelist(contractAddress, u.wallet_address);
+    for (const u of verified) await chain.addToWhitelist(deployed.address, u.wallet_address);
 
     res.status(201).json({ property: publicProperty(await findProperty(rows[0].id)) });
   }
