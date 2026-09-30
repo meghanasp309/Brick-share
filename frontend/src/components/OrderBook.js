@@ -5,8 +5,8 @@ function Level({ level, side, max, onPick }) {
   return (
     <button
       type="button"
-      onClick={() => onPick?.(level.price)}
-      title="Use this price"
+      onClick={() => onPick?.(level.price, side)}
+      title={side === "ask" ? "Buy at this price" : "Sell at this price"}
       className="relative grid w-full grid-cols-3 px-2 py-1 text-sm tabular-nums hover:bg-soft"
     >
       <span

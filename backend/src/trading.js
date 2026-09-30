@@ -365,7 +365,9 @@ async function ticker(propertyId) {
        (SELECT COALESCE(SUM(amount_paise), 0) FROM trades WHERE property_id = p.id AND status <> 'failed'
          AND created_at > now() - interval '24 hours') AS turnover_paise,
        (SELECT MAX(price_paise) FROM book_orders WHERE property_id = p.id AND side = 'buy' AND status = 'open') AS bid_paise,
-       (SELECT MIN(price_paise) FROM book_orders WHERE property_id = p.id AND side = 'sell' AND status = 'open') AS ask_paise
+       (SELECT MIN(price_paise) FROM book_orders WHERE property_id = p.id AND side = 'sell' AND status = 'open') AS ask_paise,
+       (SELECT COALESCE(SUM(shares - filled_shares), 0)::int FROM book_orders
+         WHERE property_id = p.id AND side = 'sell' AND status = 'open') AS for_sale
      FROM properties p WHERE p.id = $1`,
     [propertyId]
   );
@@ -391,6 +393,7 @@ async function ticker(propertyId) {
     marketCap: rupees(last * r.total_shares),
     bestBid: optional(r.bid_paise),
     bestAsk: optional(r.ask_paise),
+    sharesForSale: r.for_sale, // shares other investors are selling right now
   };
 }
 
@@ -451,7 +454,7 @@ async function announce(propertyId, orders, trades) {
       live.toUser(t.buyer_id, "trade", myTrade(t, t.buyer_id));
       live.toUser(t.seller_id, "trade", myTrade(t, t.seller_id));
     }
-    if (trades.length) live.toProperty(propertyId, "ticker", await ticker(propertyId));
+    live.toProperty(propertyId, "ticker", await ticker(propertyId)); // best bid/ask and shares for sale change too
     for (const o of orders) live.toUser(o.user_id, "order", publicOrder(o));
     const buyers = new Set(orders.filter((o) => o.side === "buy").map((o) => o.user_id));
     for (const id of buyers) live.toUser(id, "wallet", await cash.summary(id));

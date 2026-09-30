@@ -25,7 +25,7 @@ export default function TradePage() {
   const [candles, setCandles] = useState([]);
   const [interval, setInterval_] = useState("5m");
   const [error, setError] = useState(null);
-  const [pickedPrice, setPickedPrice] = useState(null);
+  const [picked, setPicked] = useState(null); // { price, side } tapped in the order book
 
   const loadCandles = useCallback(
     () => api(`/market/${propertyId}/candles?interval=${interval}`).then((r) => setCandles(r.candles)),
@@ -145,7 +145,7 @@ export default function TradePage() {
 
         <div className="min-w-0 space-y-6">
           {user?.role === "investor" ? (
-            <OrderForm propertyId={propertyId} ticker={ticker} pickedPrice={pickedPrice} user={user} />
+            <OrderForm propertyId={propertyId} ticker={ticker} picked={picked} user={user} />
           ) : (
             <Card title="Buy or sell">
               <p className="text-sm text-muted">
@@ -154,8 +154,10 @@ export default function TradePage() {
             </Card>
           )}
           <Card title="Order book">
-            <OrderBook book={book} lastPrice={ticker.lastPrice} onPick={setPickedPrice} />
-            <p className="mt-3 text-xs text-muted">Tap a price to use it in your order.</p>
+            <OrderBook book={book} lastPrice={ticker.lastPrice} onPick={(price, side) => setPicked({ price, side })} />
+            <p className="mt-3 text-xs text-muted">
+              Red rows are investors selling: tap one to buy their shares. Green rows are investors buying: tap one to sell to them.
+            </p>
           </Card>
         </div>
       </div>
@@ -163,8 +165,11 @@ export default function TradePage() {
   );
 }
 
-function OrderForm({ propertyId, ticker, pickedPrice, user }) {
-  const [side, setSide] = useState("buy");
+function OrderForm({ propertyId, ticker, picked, user }) {
+  // Links can open the form on one side: /trade/1?side=sell
+  const [side, setSide] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("side") === "sell" ? "sell" : "buy"
+  );
   const [shares, setShares] = useState(10);
   const [price, setPrice] = useState(ticker.lastPrice);
   const [wallet, setWallet] = useState(null);
@@ -172,11 +177,14 @@ function OrderForm({ propertyId, ticker, pickedPrice, user }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
 
-  // A price picked from the order book fills the form.
-  const [lastPicked, setLastPicked] = useState(pickedPrice);
-  if (pickedPrice !== lastPicked) {
-    setLastPicked(pickedPrice);
-    if (pickedPrice) setPrice(pickedPrice);
+  // Tapping a row in the order book fills the form: a sell row means you buy, a buy row means you sell.
+  const [lastPicked, setLastPicked] = useState(picked);
+  if (picked !== lastPicked) {
+    setLastPicked(picked);
+    if (picked) {
+      setPrice(picked.price);
+      setSide(picked.side === "ask" ? "buy" : "sell");
+    }
   }
 
   const loadMine = useCallback(
@@ -202,7 +210,18 @@ function OrderForm({ propertyId, ticker, pickedPrice, user }) {
   }, [loadMine, propertyId]);
 
   const total = (Number(shares) || 0) * (Number(price) || 0);
-  const disabled = user.kycStatus !== "approved" || ticker.frozen;
+  // Why this order can't be placed right now, in plain words (null = it can).
+  const blocked =
+    user.kycStatus !== "approved"
+      ? "Your ID (KYC) must be approved before you can buy or sell."
+      : ticker.frozen
+        ? "This property is frozen, so nobody can buy or sell it now."
+        : side === "buy" && wallet && wallet.available < total
+          ? `Not enough money. You have ${rupees(wallet.available)} but this order needs ${rupees(total)}.`
+          : side === "sell" && owned < 1
+            ? "You don't own any shares of this property yet, so there is nothing to sell."
+            : null;
+  const disabled = Boolean(blocked);
 
   async function submit(e) {
     e.preventDefault();
@@ -261,12 +280,19 @@ function OrderForm({ propertyId, ticker, pickedPrice, user }) {
         <Button type="submit" variant={side} busy={busy} disabled={disabled} className="w-full capitalize">
           {side} {ticker.symbol}
         </Button>
-        {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
-        {side === "buy" && wallet && wallet.available < total && (
-          <p className="text-xs text-muted">
-            Not enough money? <Link href="/wallet" className="underline">Add money to your wallet</Link>.
+        {blocked && (
+          <p className="text-xs text-red-600">
+            {blocked}{" "}
+            {user.kycStatus !== "approved" && <Link href="/kyc" className="underline">Go to KYC</Link>}
+            {user.kycStatus === "approved" && side === "buy" && wallet && wallet.available < total && (
+              <Link href="/wallet" className="underline">Add money to your wallet</Link>
+            )}
           </p>
         )}
+        {side === "buy" && !ticker.bestAsk && !blocked && (
+          <p className="text-xs text-muted">No investor is selling right now. Your order waits on the book until someone sells at your price.</p>
+        )}
+        {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
       </form>
     </Card>
   );
