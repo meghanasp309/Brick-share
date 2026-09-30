@@ -9,10 +9,11 @@ A peer-to-peer marketplace for **fractional real estate**. An owner splits a pro
 ```
 brick-share/
 ├── network/     Private blockchain: 4 Besu nodes in Docker
-└── contracts/   Smart contracts (Solidity + Hardhat)
+├── contracts/   Smart contracts (Solidity + Hardhat)
+└── backend/     API server (Node + Express + PostgreSQL)
 ```
 
-Coming next (see the plan): `backend/` (Node + Express), `frontend/` (Next.js).
+Coming next (see the plan): Razorpay buying, trading, and `frontend/` (Next.js).
 
 ### The blockchain, in simple words
 
@@ -46,7 +47,7 @@ In PowerShell, inside your `brick-share` folder:
 
 ```powershell
 git fetch
-git checkout claude/project-thread-35491s
+git checkout claude/project-thread-7czfxz
 ```
 
 (Once this is merged, just use `git checkout main` and `git pull`.)
@@ -87,11 +88,82 @@ docker compose stop      # pause, keep the chain
 docker compose down -v   # delete everything and start fresh next time
 ```
 
+### 7. Start the backend (API server)
+
+Keep the blockchain running (step 3). Then:
+
+```powershell
+cd ..\backend
+docker compose up -d     # starts the database (PostgreSQL)
+npm install
+npm start
+```
+
+Open http://localhost:4000/health in your browser. You should see `"ok": true` and the block number.
+
+The first start creates two accounts for you:
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | admin@brickshare.test | admin123 |
+| Land Authority | land@brickshare.test | land123 |
+
+To change settings (port, passwords), copy `.env.example` to `.env` and edit it.
+
+### 8. Run the backend tests
+
+With the blockchain and the database both running:
+
+```powershell
+npm test
+```
+
+The tests use their own database (`brickshare_test`), so your data is safe. They take about 40 seconds, because each blockchain step waits for a new block.
+
 ### If something goes wrong
 
 - **"docker: command not found" or "cannot connect"**: Docker Desktop isn't running. Open it first.
 - **"port is already allocated"**: something else uses port 8545. Close it, or change the port in `network/docker-compose.yml`.
 - **Nodes stuck on block 0**: run `docker compose down -v` and then `docker compose up -d` again.
+- **Backend says "Can't reach the database"**: run `docker compose up -d` inside `backend`.
+- **Port 5432 already in use**: you have another PostgreSQL installed. Stop it, or change the port in `backend/docker-compose.yml` and `DATABASE_URL` in `.env`.
+- **You reset the blockchain** (`down -v`) but not the database: old properties point to contracts that no longer exist. Reset the database too: `cd backend` then `docker compose down -v` and `docker compose up -d`.
+
+## The backend, in simple words
+
+The backend is the middle part between the app and the blockchain.
+
+- **Login with roles**: investor, owner, admin, land authority. Anyone can sign up as an investor or owner.
+- **Custodial wallets**: every user gets a blockchain wallet when they sign up. The server keeps its key locked (encrypted), so users never touch crypto.
+- **KYC (simulated)**: a user uploads a photo of their ID. An admin approves it, and the server adds the user's wallet to the whitelist of every property on the chain.
+- **Listing**: an owner with approved KYC lists a property. The server deploys a new `PropertyToken` contract for it (Pending). The Land Authority approves it, and all shares go to the owner. The Land Authority can also freeze it.
+- **The database** only keeps things like names, emails and photos. Who owns which shares is always read from the blockchain.
+
+### API list
+
+Send the login token as a header: `Authorization: Bearer <token>`.
+
+| Method | URL | Who | What it does |
+|---|---|---|---|
+| GET | `/health` | anyone | Is everything running? |
+| POST | `/auth/signup` | anyone | `{ email, password, fullName, role: "investor" or "owner" }` |
+| POST | `/auth/login` | anyone | `{ email, password }`, returns a token |
+| GET | `/me` | logged in | Your profile, wallet and KYC status |
+| POST | `/kyc` | investor, owner | Form: `idType` (aadhaar/pan/passport), `idNumber`, file `document` |
+| GET | `/kyc` | logged in | Your KYC status |
+| GET | `/admin/kyc?status=pending` | admin | KYC waiting for review |
+| GET | `/admin/kyc/:id/document` | admin | See the uploaded ID |
+| POST | `/admin/kyc/:id/approve` | admin | Approve, and whitelist the wallet on-chain |
+| POST | `/admin/kyc/:id/reject` | admin | `{ note }` |
+| GET | `/admin/users` | admin | All users |
+| GET | `/properties` | anyone | All listings (`?status=pending` or `approved`) |
+| GET | `/properties/:id` | anyone | One listing, plus its live state from the chain |
+| POST | `/properties` | owner (KYC done) | Form: `name`, `symbol`, `location`, `description`, `totalShares`, `pricePerShare`, optional file `papers` |
+| POST | `/properties/:id/approve` | land authority | Approve on-chain, shares go to the owner |
+| POST | `/properties/:id/freeze` | land authority | `{ reason }` |
+| POST | `/properties/:id/unfreeze` | land authority | Lift the freeze |
+
+If you change the contract, copy the new version into the backend: `cd contracts`, then `npm run compile` and `npm run export-abi`.
 
 ## Test accounts
 

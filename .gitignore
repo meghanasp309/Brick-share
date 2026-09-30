@@ -6,3 +6,4 @@ contracts/coverage/
 contracts/coverage.json
 contracts/typechain-types/
 .DS_Store
+backend/uploads/

@@ -7,7 +7,8 @@
     "test": "hardhat test",
     "deploy": "hardhat run scripts/deploy.js --network besu",
     "demo": "hardhat run scripts/demo.js --network besu",
-    "nodes": "node scripts/check-nodes.js"
+    "nodes": "node scripts/check-nodes.js",
+    "export-abi": "node scripts/export-abi.js"
   },
   "license": "ISC",
   "devDependencies": {
