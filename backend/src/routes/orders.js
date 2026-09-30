@@ -67,11 +67,22 @@ async function findOrder(id, user) {
   return order;
 }
 
+// Orders whose shares are being sent right now, so one order never sends twice at once.
+const inFlight = new Map();
+
 /**
  * Moves the shares on the chain for an order that is already marked "paid".
  * Saves the result (completed or failed) and returns the updated order.
+ * Safe to call again, e.g. after a restart.
  */
-async function deliverShares(orderId) {
+function deliverShares(orderId) {
+  if (!inFlight.has(orderId)) {
+    inFlight.set(orderId, doDeliver(orderId).finally(() => inFlight.delete(orderId)));
+  }
+  return inFlight.get(orderId);
+}
+
+async function doDeliver(orderId) {
   const { rows } = await db.query(
     `SELECT o.*, p.contract_address, buyer.wallet_address AS buyer_wallet, owner.wallet_key_enc AS owner_key
      FROM orders o
@@ -82,22 +93,50 @@ async function deliverShares(orderId) {
     [orderId]
   );
   const o = rows[0];
-  try {
-    const ownerSigner = chain.userSigner({ wallet_key_enc: o.owner_key });
-    const tx = await chain.transferShares(o.contract_address, ownerSigner, o.buyer_wallet, o.shares);
-    await db.query(
-      "UPDATE orders SET status = 'completed', tx_hash = $2, failure_reason = NULL, completed_at = now() WHERE id = $1",
-      [o.id, tx]
-    );
-  } catch (err) {
-    const reason = err.revert?.name
-      ? `Blockchain refused: ${err.revert.name}`
-      : "Could not reach the blockchain";
-    if (!err.revert?.name) console.error(`Order ${o.id}: share transfer failed`, err);
-    await db.query("UPDATE orders SET status = 'failed', failure_reason = $2 WHERE id = $1", [o.id, reason]);
+  if (o.status === "paid") {
+    try {
+      // Sent before (e.g. the server restarted while waiting)? Check that one
+      // first, so the shares never move twice.
+      let hash = null;
+      if (o.tx_hash) {
+        const outcome = await chain.transactionOutcome(o.tx_hash);
+        if (outcome === "success") hash = o.tx_hash;
+        else if (outcome === "unknown") throw Object.assign(new Error("not confirmed"), { unconfirmed: true });
+      }
+      if (!hash) {
+        const ownerSigner = chain.userSigner({ wallet_key_enc: o.owner_key });
+        hash = await chain.transferSharesTracked(o.contract_address, ownerSigner, o.buyer_wallet, o.shares, (h) =>
+          db.query("UPDATE orders SET tx_hash = $2 WHERE id = $1", [o.id, h])
+        );
+      }
+      await db.query(
+        `UPDATE orders SET status = 'completed', tx_hash = $2, failure_reason = NULL, completed_at = now()
+         WHERE id = $1 AND status = 'paid'`,
+        [o.id, hash]
+      );
+    } catch (err) {
+      let reason = "Could not reach the blockchain";
+      if (err.unconfirmed) reason = "The blockchain has not confirmed the transfer yet. Try again later";
+      else if (err.revert?.name) reason = `Blockchain refused: ${err.revert.name}`;
+      else if (err.code === "CALL_EXCEPTION") reason = "Blockchain refused the transfer";
+      else console.error(`Order ${o.id}: share transfer failed`, err);
+      await db.query("UPDATE orders SET status = 'failed', failure_reason = $2 WHERE id = $1 AND status = 'paid'", [o.id, reason]);
+    }
   }
   const { rows: updated } = await db.query(`${SELECT} WHERE o.id = $1`, [o.id]);
   return updated[0];
+}
+
+/**
+ * Marks an order as paid (only once, even if the app and a Razorpay webhook
+ * both report it), then delivers the shares. Returns the updated order.
+ */
+async function markPaid(orderId, paymentId) {
+  await db.query(
+    "UPDATE orders SET status = 'paid', razorpay_payment_id = $2, paid_at = now() WHERE id = $1 AND status = 'created'",
+    [orderId, paymentId]
+  );
+  return deliverShares(orderId);
 }
 
 /** Checks Razorpay's proof of payment, then delivers the shares. */
@@ -111,14 +150,24 @@ async function confirmPayment(order, proof) {
   if (!payments.isValidSignature(rzpOrderId, paymentId, signature)) {
     throw new HttpError(400, "Payment signature is not valid");
   }
+  return markPaid(order.id, paymentId);
+}
 
-  // Only one request may move from "created" to "paid", so shares are sent once.
-  const { rowCount } = await db.query(
-    "UPDATE orders SET status = 'paid', razorpay_payment_id = $2, paid_at = now() WHERE id = $1 AND status = 'created'",
-    [order.id, paymentId]
+/** After a restart: finish every order that was paid but whose shares weren't sent yet. */
+async function resumeDeliveries() {
+  const { rows } = await db.query("SELECT id FROM orders WHERE status = 'paid' ORDER BY id");
+  for (const o of rows) await deliverShares(o.id);
+  return rows.length;
+}
+
+/** After the Land Authority unfreezes a property: try its failed orders again. */
+async function retryFailedOrders(propertyId) {
+  const { rows } = await db.query(
+    "UPDATE orders SET status = 'paid' WHERE property_id = $1 AND status = 'failed' RETURNING id",
+    [propertyId]
   );
-  if (!rowCount) throw new HttpError(409, "This order is already being processed");
-  return deliverShares(order.id);
+  for (const o of rows) await deliverShares(o.id);
+  return rows.length;
 }
 
 // ---------- For investors ----------
@@ -215,8 +264,10 @@ router.post("/orders/:id/mock-pay", requireAuth, async (req, res) => {
 });
 
 // Paid, but the shares didn't arrive (e.g. the property was frozen). Try again.
+// An order stuck in "paid" (e.g. the server crashed mid-way) can be retried too.
 router.post("/orders/:id/retry", requireAuth, async (req, res) => {
   const order = await findOrder(req.params.id, req.user);
+  if (order.status === "paid") return res.json({ order: publicOrder(await deliverShares(order.id)) });
   if (order.status !== "failed") throw new HttpError(409, `Only failed orders can be retried (this one is ${order.status})`);
   const { rowCount } = await db.query("UPDATE orders SET status = 'paid' WHERE id = $1 AND status = 'failed'", [order.id]);
   if (!rowCount) throw new HttpError(409, "This order is already being processed");
@@ -236,4 +287,4 @@ router.get("/admin/orders", requireAuth, requireRole("admin"), async (req, res) 
   res.json({ orders: rows.map(publicOrder) });
 });
 
-module.exports = { router, reservedShares };
+module.exports = { router, reservedShares, markPaid, resumeDeliveries, retryFailedOrders };

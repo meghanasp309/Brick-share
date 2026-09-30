@@ -37,6 +37,27 @@ async function sendWalletUpdate(userId) {
   live.toUser(userId, "wallet", await cash.summary(userId));
 }
 
+/**
+ * Adds a paid deposit to the wallet, only once, even if the app and a
+ * Razorpay webhook both report it. Returns the deposit, or null if it was
+ * already added.
+ */
+async function creditDeposit(deposit, paymentId) {
+  const paid = await cash.inTransaction(async (client) => {
+    await cash.lockBalance(client, deposit.user_id);
+    const { rows } = await client.query(
+      `UPDATE deposits SET status = 'paid', razorpay_payment_id = $2, paid_at = now()
+       WHERE id = $1 AND status = 'created' RETURNING *`,
+      [deposit.id, paymentId]
+    );
+    if (!rows[0]) return null;
+    await cash.addEntry(client, deposit.user_id, "deposit", Number(deposit.amount_paise), { depositId: deposit.id });
+    return rows[0];
+  });
+  if (paid) await sendWalletUpdate(deposit.user_id);
+  return paid;
+}
+
 /** Checks Razorpay's proof of payment, then adds the money to the wallet (only once). */
 async function confirmDeposit(deposit, proof) {
   if (deposit.status === "paid") return deposit; // already done (e.g. the app sent it twice)
@@ -46,19 +67,8 @@ async function confirmDeposit(deposit, proof) {
   if (!payments.isValidSignature(rzpOrderId, paymentId, signature)) {
     throw new HttpError(400, "Payment signature is not valid");
   }
-
-  const paid = await cash.inTransaction(async (client) => {
-    await cash.lockBalance(client, deposit.user_id);
-    const { rows } = await client.query(
-      `UPDATE deposits SET status = 'paid', razorpay_payment_id = $2, paid_at = now()
-       WHERE id = $1 AND status = 'created' RETURNING *`,
-      [deposit.id, paymentId]
-    );
-    if (!rows[0]) throw new HttpError(409, "This deposit is already being processed");
-    await cash.addEntry(client, deposit.user_id, "deposit", Number(deposit.amount_paise), { depositId: deposit.id });
-    return rows[0];
-  });
-  await sendWalletUpdate(deposit.user_id);
+  const paid = await creditDeposit(deposit, paymentId);
+  if (!paid) throw new HttpError(409, "This deposit is already being processed");
   return paid;
 }
 
@@ -147,4 +157,4 @@ router.post("/wallet/withdraw", requireAuth, requireRole("investor", "owner"), a
   res.json({ wallet: await cash.summary(req.user.id) });
 });
 
-module.exports = { router, sendWalletUpdate };
+module.exports = { router, sendWalletUpdate, creditDeposit };

@@ -1,0 +1,9 @@
+# Starts everything BrickShare needs, in one go:
+#   the 4 blockchain nodes (network/), the database and IPFS (backend/).
+#
+#   docker compose up -d      start
+#   docker compose stop       pause (keeps all data)
+#   docker compose down -v    delete everything and start fresh next time
+include:
+  - network/docker-compose.yml
+  - backend/docker-compose.yml

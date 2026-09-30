@@ -125,13 +125,15 @@ function Users() {
   );
 }
 
-// Orders, trades and rent that were paid but the blockchain refused (e.g. a freeze).
+// Orders, trades and rent that were paid but the blockchain refused (e.g. a freeze),
+// or that got stuck half-way (e.g. the server stopped while sending the shares).
 function Stuck() {
   const { data, error, loading, reload } = useLoad(async () => {
-    const [orders, trades, rent] = await Promise.all([
-      api("/admin/orders?status=failed"), api("/admin/trades?status=failed"), api("/rent?status=paid"),
+    const [failed, paid, trades, rent] = await Promise.all([
+      api("/admin/orders?status=failed"), api("/admin/orders?status=paid"),
+      api("/admin/trades?status=failed"), api("/rent?status=paid"),
     ]);
-    return { orders: orders.orders, trades: trades.trades, payouts: rent.payouts };
+    return { orders: [...failed.orders, ...paid.orders], trades: trades.trades, payouts: rent.payouts };
   }, []);
   const [msg, setMsg] = useState(null);
 
@@ -161,7 +163,7 @@ function Stuck() {
             { label: "Property", render: (o) => o.property.name },
             { label: "Shares", align: "right", render: (o) => count(o.shares) },
             { label: "Amount", align: "right", render: (o) => rupees(o.amount) },
-            { label: "Reason", render: (o) => o.failureReason },
+            { label: "Reason", render: (o) => o.failureReason || "Paid, but the shares were not sent yet" },
             { label: "", render: (o) => retryButton(`/orders/${o.id}/retry`) },
           ]}
         />

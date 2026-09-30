@@ -61,4 +61,16 @@ function mockPayment(orderId) {
   return { razorpay_order_id: orderId, razorpay_payment_id: paymentId, razorpay_signature: sign(orderId, paymentId) };
 }
 
-module.exports = { mode, createOrder, isValidSignature, mockPayment, MOCK_SECRET };
+/**
+ * True if a webhook really came from Razorpay: its X-Razorpay-Signature
+ * header is an HMAC-SHA256 of the raw request body with our webhook secret.
+ */
+function isValidWebhook(rawBody, signature) {
+  const webhookSecret = config.razorpay.webhookSecret;
+  if (!webhookSecret || !rawBody || typeof signature !== "string") return false;
+  const expected = Buffer.from(crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex"));
+  const given = Buffer.from(signature);
+  return expected.length === given.length && crypto.timingSafeEqual(expected, given);
+}
+
+module.exports = { mode, createOrder, isValidSignature, isValidWebhook, mockPayment, MOCK_SECRET };

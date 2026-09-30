@@ -58,16 +58,19 @@ async function confirmPayment(payout, proof) {
     if (!payments.isValidSignature(rzpOrderId, paymentId, signature)) {
       throw new HttpError(400, "Payment signature is not valid");
     }
-    // Only the first request marks it paid, even if the app sends it twice.
-    await db.query(
-      `UPDATE rent_payouts SET status = 'paid', razorpay_payment_id = $2, paid_at = now()
-       WHERE id = $1 AND status = 'created'`,
-      [payout.id, paymentId]
-    );
+    await markPaid(payout.id, paymentId);
   }
   await distribute(payout.id);
   return findPayout(payout.id);
 }
+
+/** Marks a payout as paid. Only the first call counts, even if the app and a webhook both send it. */
+const markPaid = (payoutId, paymentId) =>
+  db.query(
+    `UPDATE rent_payouts SET status = 'paid', razorpay_payment_id = $2, paid_at = now()
+     WHERE id = $1 AND status = 'created'`,
+    [payoutId, paymentId]
+  );
 
 // Payouts being shared out right now, so one payout never runs twice at once.
 const inFlight = new Map();
@@ -189,4 +192,4 @@ async function resumeWaiting() {
   return rows.length;
 }
 
-module.exports = { publicPayout, findPayout, confirmPayment, distribute, retryWaiting, resumeWaiting };
+module.exports = { publicPayout, findPayout, confirmPayment, markPaid, distribute, retryWaiting, resumeWaiting };

@@ -6,6 +6,7 @@ const { createApp } = require("./app");
 const live = require("./live");
 const trading = require("./trading");
 const rent = require("./rent");
+const { resumeDeliveries } = require("./routes/orders");
 
 async function main() {
   await db.migrate();
@@ -17,6 +18,8 @@ async function main() {
   live.attach(server); // live prices and order book (Socket.io)
   const resumed = await trading.resumeSettlement();
   if (resumed) console.log(`Finishing ${resumed} trade(s) that were still settling`);
+  const delivered = await resumeDeliveries();
+  if (delivered) console.log(`Sent shares for ${delivered} paid order(s) that were stuck`);
   const waiting = await rent.resumeWaiting();
   if (waiting) console.log(`Tried to share out ${waiting} rent payout(s) that were waiting`);
 }

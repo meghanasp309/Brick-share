@@ -13,7 +13,7 @@ const { memoryUploader } = require("../uploads");
 const ipfs = require("../ipfs");
 const { saveListingPapers } = require("./documents");
 const v = require("../validate");
-const { reservedShares } = require("./orders");
+const { reservedShares, retryFailedOrders } = require("./orders");
 const trading = require("../trading");
 const rent = require("../rent");
 
@@ -144,8 +144,9 @@ router.post("/properties/:id/unfreeze", ...la, async (req, res) => {
   const tx = await chain.unfreeze(p.contract_address, chain.userSigner(req.user));
   await db.query("UPDATE properties SET frozen = false, freeze_reason = NULL WHERE id = $1", [p.id]);
   await trading.announceStatus(p.id);
-  // Trades that failed because of the freeze can now go through,
+  // Orders and trades that failed because of the freeze can now go through,
   // and rent that waited is shared out.
+  await retryFailedOrders(p.id);
   await trading.retryFailedTrades(p.id);
   await rent.retryWaiting(p.id);
   res.json({ property: publicProperty(await findProperty(p.id)), transaction: tx });

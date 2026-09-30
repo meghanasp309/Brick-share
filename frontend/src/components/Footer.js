@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useEffect, useState } from "react";
 
@@ -27,12 +28,12 @@ export default function Footer() {
           <strong className="text-text">Demo project. Test money only.</strong> No real money or real property is involved.
         </span>
         {health && (
-          <span className="flex items-center gap-2">
+          <Link href="/network" className="flex items-center gap-2 hover:text-text">
             <span className={`h-2 w-2 rounded-full ${health.ok ? "bg-emerald-500" : "bg-red-500"}`} />
             {health.ok
               ? `Private blockchain running · block #${health.blockchain.blockNumber}`
               : "Can't reach the backend"}
-          </span>
+          </Link>
         )}
       </div>
     </footer>
