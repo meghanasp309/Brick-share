@@ -4,16 +4,15 @@ A peer-to-peer marketplace for **fractional real estate**. An owner splits a pro
 
 > Demo project. Test money only.
 
-## What's in here (so far)
+## What's in here
 
 ```
 brick-share/
 ├── network/     Private blockchain: 4 Besu nodes in Docker
 ├── contracts/   Smart contracts (Solidity + Hardhat)
-└── backend/     API server (Node + Express + PostgreSQL)
+├── backend/     API server (Node + Express + PostgreSQL)
+└── frontend/    Website (Next.js + Tailwind)
 ```
-
-Coming next (see the plan): `frontend/` (Next.js).
 
 ### The blockchain, in simple words
 
@@ -48,11 +47,9 @@ The contract itself checks these rules, so no app or person can skip them.
 In PowerShell, inside your `brick-share` folder:
 
 ```powershell
-git fetch
-git checkout claude/project-thread-fnbmbg
+git checkout main
+git pull
 ```
-
-(Once this is merged, just use `git checkout main` and `git pull`.)
 
 ### 3. Start the blockchain
 
@@ -124,6 +121,31 @@ npm test
 
 The tests use their own database (`brickshare_test`), so your data is safe. They take about 3-4 minutes, because each blockchain step waits for a new block.
 
+### 9. Start the website
+
+Keep the blockchain (step 3) and the backend (step 7) running. Open a **new** PowerShell window:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:3000. The footer shows a green dot and the block number when everything is connected.
+
+Try the whole story (use 4 browser windows, or log out and in):
+
+1. **Sign up** as an owner, and as two investors. Each one sends an ID on the KYC page (any image works).
+2. **Log in as admin** (admin@brickshare.test / admin123). Approve the IDs.
+3. **As the owner**, go to "My properties" and list a property with its papers.
+4. **Log in as the Land Authority** (land@brickshare.test / land123). Check the papers and approve it.
+5. **As an investor**, open the property and buy shares from the owner (fake payment).
+6. **As the other investor**, add money on the Wallet page. Then open "Trade on the market" and buy. The chart, order book and trades update live on both screens.
+7. **As the owner**, pay rent. Each investor sees their part on the Portfolio page.
+8. **As the Land Authority**, freeze the property. A red banner appears, and nobody can buy or sell until you unfreeze it.
+
+If the backend runs somewhere else, copy `frontend/.env.example` to `frontend/.env.local` and change `NEXT_PUBLIC_API_URL`.
+
 ### If something goes wrong
 
 - **"docker: command not found" or "cannot connect"**: Docker Desktop isn't running. Open it first.
@@ -138,6 +160,8 @@ The tests use their own database (`brickshare_test`), so your data is safe. They
 - **Port 8080 already in use**: another program uses it. Change `"8080:8080"` to `"8081:8080"` in `backend/docker-compose.yml`, and set `IPFS_GATEWAY_URL=http://127.0.0.1:8081` in `.env`.
 - **"This property was listed before rent payouts existed"**: properties listed before this update use the old contract, which can't pay rent or keep papers. List the property again.
 - **Rent stays "paid" and isn't shared out**: the property is probably frozen. It is shared out by itself when the Land Authority unfreezes it. Or call `POST /rent/:id/retry`.
+- **Website says "Can't reach the server"**: start the backend (step 7). The footer dot turns green when it works.
+- **Port 3000 already in use**: run `npx next dev -p 3001` instead, and open http://localhost:3001.
 - **You reset the blockchain** (`down -v`) but not the database: old properties point to contracts that no longer exist. Reset the database too: `cd backend` then `docker compose down -v` and `docker compose up -d`.
 
 ## The backend, in simple words
@@ -344,6 +368,26 @@ Send the login token as a header: `Authorization: Bearer <token>`.
 | GET | `/properties/:id/documents/:docId/file` | anyone | Download a paper from IPFS |
 
 If you change the contract, copy the new version into the backend: `cd contracts`, then `npm run compile` and `npm run export-abi`.
+
+## The website, in simple words
+
+Each person sees the screens for their role:
+
+| Screen | Who | What it shows |
+|---|---|---|
+| Market (`/`) | everyone | Every approved property with its live price and 24h change |
+| Property (`/properties/:id`) | everyone | Details, a "buy from the owner" box, papers checked against the chain, rent history |
+| Trade (`/trade/:id`) | everyone (investors can trade) | Candle chart, order book, latest trades, buy/sell form. All live |
+| Portfolio | investor, owner | Your shares (from the blockchain), value, gain, rent earned, full history |
+| Wallet | investor, owner | Rupee balance, add money, withdraw, every movement |
+| KYC | investor, owner | Send your ID and see if it's approved |
+| My properties | owner | List a property, pay rent, add papers |
+| Admin | admin | Approve IDs, all users, retry stuck payments |
+| Land Authority | land authority | Approve properties, freeze and unfreeze |
+
+- The login token is kept in your browser, so you stay logged in.
+- Payments open Razorpay Checkout when the backend has test keys. Without keys, they use fake payments.
+- Live updates come from the backend with Socket.io.
 
 ## Test accounts
 
