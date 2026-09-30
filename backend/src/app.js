@@ -6,6 +6,8 @@ const { errorHandler } = require("./errors");
 const authRoutes = require("./routes/auth");
 const { kyc, admin } = require("./routes/kyc");
 const propertyRoutes = require("./routes/properties");
+const { router: orderRoutes } = require("./routes/orders");
+const portfolioRoutes = require("./routes/portfolio");
 
 function createApp() {
   const app = express();
@@ -30,6 +32,8 @@ function createApp() {
   app.use(kyc);
   app.use("/admin", admin);
   app.use(propertyRoutes);
+  app.use(orderRoutes);
+  app.use(portfolioRoutes);
 
   app.use((_req, res) => res.status(404).json({ error: "Not found" }));
   app.use(errorHandler);

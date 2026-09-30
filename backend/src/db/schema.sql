@@ -48,3 +48,32 @@ CREATE TABLE IF NOT EXISTS properties (
   approved_at      TIMESTAMPTZ,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- A primary purchase: an investor buys shares from the property owner.
+--   created   -> waiting for payment (shares are held for a few minutes)
+--   paid      -> payment checked, shares are being moved on the chain
+--   completed -> shares are in the investor's wallet
+--   failed    -> paid, but the chain transfer failed. Can be retried.
+CREATE TABLE IF NOT EXISTS orders (
+  id                  SERIAL PRIMARY KEY,
+  user_id             INTEGER NOT NULL REFERENCES users(id),
+  property_id         INTEGER NOT NULL REFERENCES properties(id),
+  shares              INTEGER NOT NULL CHECK (shares > 0),
+  price_per_share     NUMERIC(12, 2) NOT NULL,       -- in INR, at the time of the order
+  amount_paise        BIGINT NOT NULL CHECK (amount_paise > 0), -- 1 rupee = 100 paise
+  currency            TEXT NOT NULL DEFAULT 'INR',
+  status              TEXT NOT NULL DEFAULT 'created'
+                        CHECK (status IN ('created', 'paid', 'completed', 'failed')),
+  payment_mode        TEXT NOT NULL CHECK (payment_mode IN ('razorpay', 'mock')),
+  razorpay_order_id   TEXT NOT NULL UNIQUE,
+  razorpay_payment_id TEXT UNIQUE,
+  tx_hash             TEXT,
+  failure_reason      TEXT,
+  expires_at          TIMESTAMPTZ NOT NULL,
+  paid_at             TIMESTAMPTZ,
+  completed_at        TIMESTAMPTZ,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS orders_user_idx ON orders (user_id);
+CREATE INDEX IF NOT EXISTS orders_property_idx ON orders (property_id);

@@ -22,7 +22,19 @@ const config = {
     password: env("LAND_AUTHORITY_PASSWORD", "land123"),
   },
   uploadDir: env("UPLOAD_DIR", "uploads"),
+  // Razorpay TEST keys (start with "rzp_test_"). Leave empty to use the
+  // built-in fake payments ("mock" mode), which need no account.
+  razorpay: {
+    keyId: env("RAZORPAY_KEY_ID", ""),
+    keySecret: env("RAZORPAY_KEY_SECRET", ""),
+  },
+  // How long an unpaid order keeps its shares reserved.
+  orderMinutes: Number(env("ORDER_MINUTES", 15)),
 };
+
+if (config.razorpay.keyId && !config.razorpay.keyId.startsWith("rzp_test_")) {
+  throw new Error("RAZORPAY_KEY_ID must be a TEST key (rzp_test_...). This is a demo: no real money.");
+}
 
 if (process.env.NODE_ENV === "production") {
   for (const name of ["JWT_SECRET", "WALLET_SECRET"]) {

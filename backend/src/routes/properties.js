@@ -12,6 +12,7 @@ const { HttpError } = require("../errors");
 const { requireAuth, requireRole, requireKyc } = require("../auth");
 const { uploader, fileHash } = require("../uploads");
 const v = require("../validate");
+const { reservedShares } = require("./orders");
 
 const router = express.Router();
 const upload = uploader("papers");
@@ -63,7 +64,9 @@ router.get("/properties", async (req, res) => {
 router.get("/properties/:id", async (req, res) => {
   const p = await findProperty(req.params.id);
   const onChain = await chain.readProperty(p.contract_address, p.owner_wallet);
-  res.json({ property: publicProperty(p), onChain });
+  // Shares investors can still buy: the owner's shares minus those held for open orders.
+  const sharesForSale = Math.max(0, onChain.ownerShares - (await reservedShares(p.id)));
+  res.json({ property: publicProperty(p), onChain, sharesForSale });
 });
 
 // Form fields: name, symbol, location, description, totalShares, pricePerShare,

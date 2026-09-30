@@ -13,7 +13,7 @@ brick-share/
 └── backend/     API server (Node + Express + PostgreSQL)
 ```
 
-Coming next (see the plan): Razorpay buying, trading, and `frontend/` (Next.js).
+Coming next (see the plan): trading, rent payouts, and `frontend/` (Next.js).
 
 ### The blockchain, in simple words
 
@@ -47,7 +47,7 @@ In PowerShell, inside your `brick-share` folder:
 
 ```powershell
 git fetch
-git checkout claude/project-thread-7czfxz
+git checkout claude/project-thread-2rs36c
 ```
 
 (Once this is merged, just use `git checkout main` and `git pull`.)
@@ -118,7 +118,7 @@ With the blockchain and the database both running:
 npm test
 ```
 
-The tests use their own database (`brickshare_test`), so your data is safe. They take about 40 seconds, because each blockchain step waits for a new block.
+The tests use their own database (`brickshare_test`), so your data is safe. They take about 1-2 minutes, because each blockchain step waits for a new block.
 
 ### If something goes wrong
 
@@ -126,6 +126,7 @@ The tests use their own database (`brickshare_test`), so your data is safe. They
 - **"port is already allocated"**: something else uses port 8545. Close it, or change the port in `network/docker-compose.yml`.
 - **Nodes stuck on block 0**: run `docker compose down -v` and then `docker compose up -d` again.
 - **Backend says "Can't reach the database"**: run `docker compose up -d` inside `backend`.
+- **"Razorpay refused the order"**: check `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in `backend/.env`, or delete both to use fake payments.
 - **Port 5432 already in use**: you have another PostgreSQL installed. Stop it, or change the port in `backend/docker-compose.yml` and `DATABASE_URL` in `.env`.
 - **You reset the blockchain** (`down -v`) but not the database: old properties point to contracts that no longer exist. Reset the database too: `cd backend` then `docker compose down -v` and `docker compose up -d`.
 
@@ -137,7 +138,30 @@ The backend is the middle part between the app and the blockchain.
 - **Custodial wallets**: every user gets a blockchain wallet when they sign up. The server keeps its key locked (encrypted), so users never touch crypto.
 - **KYC (simulated)**: a user uploads a photo of their ID. An admin approves it, and the server adds the user's wallet to the whitelist of every property on the chain.
 - **Listing**: an owner with approved KYC lists a property. The server deploys a new `PropertyToken` contract for it (Pending). The Land Authority approves it, and all shares go to the owner. The Land Authority can also freeze it.
-- **The database** only keeps things like names, emails and photos. Who owns which shares is always read from the blockchain.
+- **Buying shares**: a verified investor picks a property and a number of shares, and pays in rupees with Razorpay (test mode). When the payment is confirmed, the server moves the shares from the owner's wallet to the investor's wallet on the blockchain.
+- **Portfolio**: shows your shares (read from the blockchain), what they're worth, and your full history.
+- **The database** only keeps things like names, emails, photos and orders. Who owns which shares is always read from the blockchain.
+
+### How buying works
+
+1. `POST /orders` with `{ propertyId, shares }`. The shares are held for you for 15 minutes.
+2. You pay. The app gets 3 values back from Razorpay: `razorpay_order_id`, `razorpay_payment_id`, `razorpay_signature`.
+3. `POST /orders/:id/verify` with those 3 values. The server checks the signature (proof that you really paid), then sends the shares to your wallet.
+4. If the blockchain refuses (for example, the property got frozen), the order becomes `failed`. You already paid, so your shares stay held. Try again later with `POST /orders/:id/retry`.
+
+**No Razorpay account? No problem.** Without keys the server uses fake payments ("mock" mode). Skip step 2 and call `POST /orders/:id/mock-pay` instead of `verify`.
+
+**Want real Razorpay test mode?** Sign up at https://dashboard.razorpay.com, switch to **Test Mode**, and create API keys. Put them in `backend/.env` as `RAZORPAY_KEY_ID` (starts with `rzp_test_`) and `RAZORPAY_KEY_SECRET`. The server refuses live keys, so no real money can move. The payment screen itself (Razorpay Checkout) comes with the frontend.
+
+Try it in PowerShell (after an investor has passed KYC and a property is approved):
+
+```powershell
+$login = Invoke-RestMethod -Method Post -Uri http://localhost:4000/auth/login -ContentType "application/json" -Body '{"email":"you@example.com","password":"password123"}'
+$h = @{ Authorization = "Bearer $($login.token)" }
+$o = Invoke-RestMethod -Method Post -Uri http://localhost:4000/orders -Headers $h -ContentType "application/json" -Body '{"propertyId":1,"shares":50}'
+Invoke-RestMethod -Method Post -Uri "http://localhost:4000/orders/$($o.order.id)/mock-pay" -Headers $h
+Invoke-RestMethod -Uri http://localhost:4000/portfolio -Headers $h | ConvertTo-Json -Depth 5
+```
 
 ### API list
 
@@ -157,11 +181,20 @@ Send the login token as a header: `Authorization: Bearer <token>`.
 | POST | `/admin/kyc/:id/reject` | admin | `{ note }` |
 | GET | `/admin/users` | admin | All users |
 | GET | `/properties` | anyone | All listings (`?status=pending` or `approved`) |
-| GET | `/properties/:id` | anyone | One listing, plus its live state from the chain |
+| GET | `/properties/:id` | anyone | One listing, its live state from the chain, and `sharesForSale` |
 | POST | `/properties` | owner (KYC done) | Form: `name`, `symbol`, `location`, `description`, `totalShares`, `pricePerShare`, optional file `papers` |
 | POST | `/properties/:id/approve` | land authority | Approve on-chain, shares go to the owner |
 | POST | `/properties/:id/freeze` | land authority | `{ reason }` |
 | POST | `/properties/:id/unfreeze` | land authority | Lift the freeze |
+| POST | `/orders` | investor (KYC done) | `{ propertyId, shares }`, returns the order and the Razorpay Checkout details |
+| GET | `/orders` | logged in | Your orders |
+| GET | `/orders/:id` | buyer, admin | One order |
+| POST | `/orders/:id/verify` | buyer | `{ razorpay_order_id, razorpay_payment_id, razorpay_signature }`, then shares are sent |
+| POST | `/orders/:id/mock-pay` | buyer | Fake payment (only when no Razorpay keys are set) |
+| POST | `/orders/:id/retry` | buyer, admin | Send the shares again for a `failed` order |
+| GET | `/admin/orders?status=failed` | admin | All orders, optionally by status |
+| GET | `/portfolio` | logged in | Your shares, their value and what you paid |
+| GET | `/transactions` | logged in | Every share movement in or out of your wallet (from the chain) |
 
 If you change the contract, copy the new version into the backend: `cd contracts`, then `npm run compile` and `npm run export-abi`.
 

@@ -87,6 +87,40 @@ async function readProperty(contractAddress, ownerAddress) {
   };
 }
 
+/** Moves `shares` from the signer's wallet (e.g. the property owner) to `to`. */
+const transferShares = (contractAddress, signer, to, shares) => send(signer, contractAddress, "transfer", to, shares);
+
+async function balanceOf(contractAddress, address) {
+  return Number(await token(contractAddress).balanceOf(address));
+}
+
+/**
+ * Every share movement into or out of `address` on one property, read from
+ * the chain's Transfer events. Oldest first.
+ */
+async function transfersOf(contractAddress, address) {
+  const t = token(contractAddress);
+  const [incoming, outgoing] = await Promise.all([
+    t.queryFilter(t.filters.Transfer(null, address), 0),
+    t.queryFilter(t.filters.Transfer(address, null), 0),
+  ]);
+  const events = [...incoming, ...outgoing];
+  const blocks = new Map();
+  await Promise.all([...new Set(events.map((e) => e.blockNumber))].map(async (n) => {
+    blocks.set(n, await provider.getBlock(n));
+  }));
+  return events
+    .sort((a, b) => a.blockNumber - b.blockNumber || a.index - b.index)
+    .map((e) => ({
+      txHash: e.transactionHash,
+      blockNumber: e.blockNumber,
+      timestamp: new Date(blocks.get(e.blockNumber).timestamp * 1000).toISOString(),
+      from: e.args.from,
+      to: e.args.to,
+      shares: Number(e.args.value),
+    }));
+}
+
 const isWhitelisted = (contractAddress, address) => token(contractAddress).isWhitelisted(address);
 
 async function networkInfo() {
@@ -97,4 +131,5 @@ async function networkInfo() {
 module.exports = {
   provider, platform, userSigner, deployProperty, addToWhitelist,
   approveProperty, freeze, unfreeze, readProperty, isWhitelisted, networkInfo,
+  transferShares, balanceOf, transfersOf,
 };
