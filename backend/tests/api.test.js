@@ -74,7 +74,7 @@ test("the full listing story: KYC, list, approve, freeze", async () => {
     .field("idType", "aadhaar").field("idNumber", "2345 6789 0123")
     .attach("document", fakeId, { filename: "id.pdf", contentType: "application/pdf" })
     .expect(201);
-  assert.strictEqual(sub.body.submission.idLast4, "9012");
+  assert.strictEqual(sub.body.submission.idLast4, "0123");
   await api().post("/kyc").set(auth(investor.token))
     .field("idType", "pan").field("idNumber", "ABCDE1234F")
     .attach("document", fakeId, { filename: "id.pdf", contentType: "application/pdf" })
