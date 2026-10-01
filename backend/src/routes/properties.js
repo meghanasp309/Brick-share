@@ -87,6 +87,16 @@ function percentField(body) {
 
 // ---------- Max % per investor ----------
 
+// How many more shares you may buy of this property under the limit.
+// have = shares you hold plus open orders; canBuy = how many more you may buy.
+router.get("/properties/:id/my-limit", requireAuth, async (req, res) => {
+  const p = await findProperty(req.params.id);
+  const limit = await holdingLimit.limitFor(p);
+  if (req.user.role !== "investor") return res.json({ ...limit, have: 0, canBuy: 0 });
+  const have = await holdingLimit.heldAndComing(db, req.user.id, req.user.wallet_address, p);
+  res.json({ ...limit, have, canBuy: Math.max(0, limit.maxShares - have) });
+});
+
 // The platform's limit, e.g. { maxHoldingPercent: 25 }. Anyone can see it.
 router.get("/settings", async (_req, res) => {
   res.json({ maxHoldingPercent: await holdingLimit.platformPercent() });

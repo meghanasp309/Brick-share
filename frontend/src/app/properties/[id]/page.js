@@ -142,8 +142,12 @@ function BuyFromOwner({ p, sharesForSale, holdingLimit, user, onDone }) {
   const [shares, setShares] = useState(10);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  // How many shares you have (counting open orders) and how many more you may buy.
+  const mine = useLoad(() => api(`/properties/${p.id}/my-limit`), [p.id]);
   const n = Number(shares) || 0;
-  const canBuy = user.kycStatus === "approved" && !p.frozen && sharesForSale > 0;
+  const most = mine.data ? Math.min(sharesForSale, mine.data.canBuy) : sharesForSale;
+  const overLimit = mine.data && n > mine.data.canBuy;
+  const canBuy = user.kycStatus === "approved" && !p.frozen && sharesForSale > 0 && !overLimit;
 
   async function buy(e) {
     e.preventDefault();
@@ -162,6 +166,7 @@ function BuyFromOwner({ p, sharesForSale, holdingLimit, user, onDone }) {
       setMsg({ tone: "error", text: err.message });
     } finally {
       setBusy(false);
+      mine.reload();
     }
   }
 
@@ -177,8 +182,16 @@ function BuyFromOwner({ p, sharesForSale, holdingLimit, user, onDone }) {
             label="Number of shares"
             hint={`${count(sharesForSale)} left at ${rupees(p.pricePerShare)} each. One investor can own at most ${count(holdingLimit.maxShares)} (${holdingLimit.percent}%).`}
           >
-            <Input type="number" min={1} max={sharesForSale} step={1} required value={shares} onChange={(e) => setShares(e.target.value)} />
+            <Input type="number" min={1} max={Math.max(1, most)} step={1} required value={shares} onChange={(e) => setShares(e.target.value)} />
           </Field>
+          {mine.data && (
+            <p className={`text-sm ${overLimit ? "text-red-600" : "text-muted"}`}>
+              You have {count(mine.data.have)} shares (counting open orders).{" "}
+              {mine.data.canBuy > 0
+                ? `You can buy at most ${count(mine.data.canBuy)} more.`
+                : "You have reached the limit, so you can't buy more."}
+            </p>
+          )}
           <div className="flex justify-between text-sm">
             <span className="text-muted">You pay</span>
             <span className="font-semibold">{rupees(n * p.pricePerShare)}</span>
