@@ -197,11 +197,12 @@ test("market data: price, 24h change, candles, portfolio", async () => {
   assert.strictEqual((await api().get("/market").expect(200)).body.markets.length, 1);
 
   const c = (await api().get(`/market/${property.id}/candles?interval=1d`).expect(200)).body.candles;
-  assert.strictEqual(c[0].open, 105);
+  // Alice's 200 shares from the owner (₹100) come first, then the 95 traded.
+  assert.strictEqual(c[0].open, 100);
   assert.strictEqual(c.at(-1).close, 100);
   assert.strictEqual(Math.max(...c.map((x) => x.high)), 110);
   assert.strictEqual(Math.min(...c.map((x) => x.low)), 100);
-  assert.strictEqual(c.reduce((sum, x) => sum + x.volume, 0), 95);
+  assert.strictEqual(c.reduce((sum, x) => sum + x.volume, 0), 295);
   assert.ok(c.every((x) => Number.isInteger(x.time) && x.time % 86400 === 0));
   await api().get(`/market/${property.id}/candles?interval=2h`).expect(400);
   await api().get("/market/99999").expect(404);
