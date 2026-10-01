@@ -96,6 +96,12 @@ test("buying from the owner stops at the limit", async () => {
   const more = await api().post("/orders").set(auth(alice.token)).send({ propertyId: property.id, shares: 11 }).expect(409);
   assert.match(more.body.error, /buy at most 10 more/);
   await buyFromOwner(alice.token, 10);
+
+  // The app can show how many more Alice may buy (none: 100 of 100).
+  const mine = (await api().get(`/properties/${property.id}/my-limit`).set(auth(alice.token)).expect(200)).body;
+  assert.deepStrictEqual([mine.maxShares, mine.have, mine.canBuy], [100, 100, 0]);
+  await api().post("/orders").set(auth(alice.token)).send({ propertyId: property.id, shares: 1 }).expect(409);
+  await api().get(`/properties/${property.id}/my-limit`).expect(401);
 });
 
 test("buy orders on the market stop at the limit too", async () => {
