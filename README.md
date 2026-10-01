@@ -11,7 +11,8 @@ brick-share/
 ├── network/     Private blockchain: 4 Besu nodes in Docker
 ├── contracts/   Smart contracts (Solidity + Hardhat)
 ├── backend/     API server (Node + Express + PostgreSQL)
-└── frontend/    Website (Next.js + Tailwind)
+├── frontend/    Website (Next.js + Tailwind)
+└── plugins/     Claude Code plugin (commands, skills, hooks)
 ```
 
 ### The blockchain, in simple words
@@ -479,6 +480,52 @@ Every pull request on GitHub runs these checks by itself:
 - **Contracts**: the 13 smart contract tests.
 - **Backend**: starts the real blockchain, database and IPFS with Docker, then runs every backend test.
 - **Frontend**: lint and build the website.
+
+## Claude Code plugin
+
+The `plugins/brickshare` folder is a **Claude Code plugin**: an add-on that teaches the Claude Code AI tool how to work on this project.
+
+```
+brick-share/
+├── .claude-plugin/marketplace.json   List of plugins in this repo (so Claude Code can install it)
+├── .claude/settings.json             Turns the plugin on when you open this folder
+└── plugins/brickshare/
+    ├── .claude-plugin/plugin.json    Name, version, description
+    ├── commands/                     Slash commands
+    ├── skills/                       Know-how Claude reads when it needs it
+    └── hooks/                        Scripts that run by themselves
+```
+
+**Core features** (what the plugin does for you): start the whole demo with one command, run all the tests, check what is running, and stop Claude from making common mistakes.
+
+**Commands** (you type them):
+
+| Command | What it does |
+|---|---|
+| `/brickshare:demo` | Starts Docker, the backend, demo data and the website, then shows the logins |
+| `/brickshare:test` | Runs the contract, backend and website checks. Add `contracts`, `backend` or `frontend` to run one |
+| `/brickshare:status` | Shows ✅ or ❌ for the blockchain, database, backend and website |
+| `/brickshare:reset` | Deletes all data to start fresh (asks you first) |
+
+**Skills** (Claude picks them up by itself when they fit):
+
+- `brickshare-codebase`: a map of the folders and the rules that must not break (e.g. share ownership is read from the blockchain).
+- `add-a-feature`: a step-by-step recipe for adding a feature: contract, database, API, website, tests, docs.
+
+**Hooks** (run automatically):
+
+- **Before an edit**: blocks changes to `.env` (secrets), `PropertyToken.json` and `package-lock.json` (generated files) and the blockchain's keys.
+- **After an edit**: quickly checks just that file: syntax check for backend code, ESLint for website code, compile for the smart contract. If it fails, Claude sees the error and fixes it.
+- **When a session starts**: tells Claude about the project and whether Docker is running.
+
+### How to use it
+
+1. Install Claude Code: `npm install -g @anthropic-ai/claude-code`
+2. In PowerShell, inside your `brick-share` folder, run `claude`.
+3. Say **yes** when it asks to trust the folder and install the `brickshare` plugin. (Or run `/plugin marketplace add ./` and then `/plugin install brickshare@brickshare`.)
+4. Type `/brickshare:demo`.
+
+To try your own changes to the plugin without installing: `claude --plugin-dir ./plugins/brickshare`. To check the files are valid: `claude plugin validate ./plugins/brickshare`.
 
 ## Test accounts
 

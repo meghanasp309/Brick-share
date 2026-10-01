@@ -1,0 +1,14 @@
+{
+  "name": "brickshare",
+  "owner": { "name": "meghanasp309" },
+  "metadata": {
+    "description": "Claude Code add-ons for the BrickShare project"
+  },
+  "plugins": [
+    {
+      "name": "brickshare",
+      "source": "./plugins/brickshare",
+      "description": "Commands, skills and hooks that help Claude Code run, test and change BrickShare"
+    }
+  ]
+}

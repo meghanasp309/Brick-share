@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "brickshare": {
+      "source": { "source": "github", "repo": "meghanasp309/brick-share" }
+    }
+  },
+  "enabledPlugins": {
+    "brickshare@brickshare": true
+  }
+}

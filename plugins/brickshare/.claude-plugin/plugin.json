@@ -1,0 +1,9 @@
+{
+  "name": "brickshare",
+  "version": "1.0.0",
+  "description": "Helps Claude Code run, test and safely change the BrickShare fractional real-estate marketplace",
+  "author": { "name": "meghanasp309" },
+  "repository": "https://github.com/meghanasp309/brick-share",
+  "license": "ISC",
+  "keywords": ["brickshare", "real-estate", "blockchain", "besu", "nextjs"]
+}
