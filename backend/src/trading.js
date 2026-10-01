@@ -406,17 +406,26 @@ const INTERVALS = { "1m": "1 minute", "5m": "5 minutes", "15m": "15 minutes", "1
 /**
  * OHLC candles for a price chart: for each time slot, the first (open),
  * highest, lowest and last (close) price, and the shares traded (volume).
+ * Counts both trades between investors and shares bought from the owner
+ * (the primary sale, at the listing price), so every buy shows up.
  * `time` is in Unix seconds, the format TradingView Lightweight Charts uses.
  */
 async function candles(propertyId, interval = "1h", limit = 200) {
   const { rows } = await db.query(
-    `SELECT extract(epoch FROM date_bin($2::interval, created_at, TIMESTAMPTZ '2000-01-01'))::bigint AS time,
-            (array_agg(price_paise ORDER BY id))[1] AS open,
+    `WITH deals AS (
+       SELECT created_at AS at, 1 AS kind, id, price_paise, shares
+       FROM trades WHERE property_id = $1 AND status <> 'failed'
+       UNION ALL
+       SELECT completed_at, 0, id, round(price_per_share * 100)::bigint, shares
+       FROM orders WHERE property_id = $1 AND status = 'completed'
+     )
+     SELECT extract(epoch FROM date_bin($2::interval, at, TIMESTAMPTZ '2000-01-01'))::bigint AS time,
+            (array_agg(price_paise ORDER BY at, kind, id))[1] AS open,
             MAX(price_paise) AS high,
             MIN(price_paise) AS low,
-            (array_agg(price_paise ORDER BY id DESC))[1] AS close,
+            (array_agg(price_paise ORDER BY at DESC, kind DESC, id DESC))[1] AS close,
             SUM(shares)::int AS volume
-     FROM trades WHERE property_id = $1 AND status <> 'failed'
+     FROM deals
      GROUP BY 1 ORDER BY 1 DESC LIMIT $3`,
     [propertyId, INTERVALS[interval], limit]
   );
