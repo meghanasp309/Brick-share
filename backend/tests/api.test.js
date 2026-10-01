@@ -71,10 +71,10 @@ test("the full listing story: KYC, list, approve, freeze", async () => {
   // KYC: submit, see it in the admin queue, approve.
   await passKyc(owner.token, adminToken);
   const sub = await api().post("/kyc").set(auth(investor.token))
-    .field("idType", "aadhaar").field("idNumber", "1234 5678 9012")
+    .field("idType", "aadhaar").field("idNumber", "2345 6789 0123")
     .attach("document", fakeId, { filename: "id.pdf", contentType: "application/pdf" })
     .expect(201);
-  assert.strictEqual(sub.body.submission.idLast4, "9012");
+  assert.strictEqual(sub.body.submission.idLast4, "0123");
   await api().post("/kyc").set(auth(investor.token))
     .field("idType", "pan").field("idNumber", "ABCDE1234F")
     .attach("document", fakeId, { filename: "id.pdf", contentType: "application/pdf" })
@@ -147,7 +147,16 @@ test("KYC reject and bad input", async () => {
   await api().post("/kyc").set(auth(token)).field("idType", "pan").field("idNumber", "ABCDE1234F").expect(400); // no file
   await api().post("/kyc").set(auth(token)).field("idType", "pan").field("idNumber", "ABCDE1234F")
     .attach("document", Buffer.from("hi"), { filename: "id.txt", contentType: "text/plain" }).expect(400);
-  const sub = await api().post("/kyc").set(auth(token)).field("idType", "pan").field("idNumber", "ABCDE1234F")
+  // ID numbers with the wrong shape are refused.
+  for (const [idType, idNumber] of [
+    ["aadhaar", "1234 5678 9012"], ["aadhaar", "2345678901"], ["aadhaar", "23456789012a"],
+    ["pan", "ABCD1234F"], ["pan", "12345ABCDE"], ["passport", "12345678"], ["passport", "A123456"],
+    ["pan", "x".repeat(500)],
+  ]) {
+    await api().post("/kyc").set(auth(token)).field("idType", idType).field("idNumber", idNumber)
+      .attach("document", fakeId, { filename: "id.png", contentType: "image/png" }).expect(400);
+  }
+  const sub = await api().post("/kyc").set(auth(token)).field("idType", "pan").field("idNumber", "abcde1234f")
     .attach("document", fakeId, { filename: "id.png", contentType: "image/png" }).expect(201);
   await api().post(`/admin/kyc/${sub.body.submission.id}/reject`).set(auth(adminToken)).send({ note: "Blurry photo" }).expect(200);
   const mine = await api().get("/kyc").set(auth(token)).expect(200);
