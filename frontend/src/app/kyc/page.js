@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLoad } from "@/lib/useLoad";
 import { date } from "@/lib/format";
+import { ID_FORMATS, cleanIdNumber, idNumberError } from "@/lib/idFormats";
 import RequireLogin from "@/components/RequireLogin";
 import { Alert, Button, Card, Field, Input, Loading, Page, Select, StatusBadge } from "@/components/ui";
 
@@ -23,15 +24,21 @@ function Kyc() {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [sendError, setSendError] = useState(null);
+  const [touched, setTouched] = useState(false);
+  const idError = idNumberError(form.idType, form.idNumber);
+  const showIdError = touched && form.idNumber && idError;
+  const format = ID_FORMATS[form.idType];
 
   async function submit(e) {
     e.preventDefault();
+    setTouched(true);
+    if (idError) return;
     setBusy(true);
     setSendError(null);
     try {
       const body = new FormData();
       body.append("idType", form.idType);
-      body.append("idNumber", form.idNumber);
+      body.append("idNumber", cleanIdNumber(form.idNumber));
       body.append("document", file);
       await api("/kyc", { body });
       await Promise.all([reload(), refresh()]);
@@ -77,14 +84,26 @@ function Kyc() {
           <Card title="Send your ID">
             <form onSubmit={submit} className="space-y-4">
               <Field label="ID type">
-                <Select value={form.idType} onChange={(e) => setForm({ ...form, idType: e.target.value })}>
+                <Select value={form.idType} onChange={(e) => { setForm({ idType: e.target.value, idNumber: "" }); setTouched(false); }}>
                   <option value="aadhaar">Aadhaar</option>
                   <option value="pan">PAN</option>
                   <option value="passport">Passport</option>
                 </Select>
               </Field>
-              <Field label="ID number" hint="We only keep the last 4 digits on screen.">
-                <Input required value={form.idNumber} onChange={(e) => setForm({ ...form, idNumber: e.target.value })} />
+              <Field label="ID number" hint={`${format.hint}. We only show the last 4 characters later.`}>
+                <Input
+                  required
+                  value={form.idNumber}
+                  maxLength={format.maxLength}
+                  placeholder={format.placeholder}
+                  inputMode={form.idType === "aadhaar" ? "numeric" : "text"}
+                  autoCapitalize="characters"
+                  aria-invalid={showIdError ? true : undefined}
+                  className={showIdError ? "!border-red-500" : ""}
+                  onChange={(e) => setForm({ ...form, idNumber: form.idType === "aadhaar" ? e.target.value.replace(/[^\d ]/g, "") : e.target.value.toUpperCase() })}
+                  onBlur={() => setTouched(true)}
+                />
+                {showIdError && <span className="mt-1 block text-xs text-red-600">{idError}</span>}
               </Field>
               <Field label="Photo or PDF of your ID" hint="Test project: any image works. It stays private and is not put on IPFS.">
                 <Input type="file" required accept="image/*,application/pdf" onChange={(e) => setFile(e.target.files[0])} />

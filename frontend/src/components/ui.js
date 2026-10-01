@@ -76,8 +76,8 @@ export function Field({ label, hint, children }) {
 export const inputClass =
   "w-full rounded-lg border border-line bg-card px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20";
 
-export function Input(props) {
-  return <input className={inputClass} {...props} />;
+export function Input({ className = "", ...props }) {
+  return <input className={`${inputClass} ${className}`} {...props} />;
 }
 
 export function Select({ children, ...props }) {

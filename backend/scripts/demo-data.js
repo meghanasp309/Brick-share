@@ -102,7 +102,7 @@ async function main() {
   for (const [key, p] of Object.entries(PEOPLE)) {
     t[key] = (await call("POST", "/auth/signup", { body: { ...p, password: PASSWORD } })).token;
     const { submission } = await call("POST", "/kyc", {
-      token: t[key], form: { idType: "pan", idNumber: `DEMO${key.toUpperCase().padEnd(5, "X")}1F`, document: pdf(`ID card of ${p.fullName}`) },
+      token: t[key], form: { idType: "pan", idNumber: `${key.toUpperCase().replace(/[^A-Z]/g, "").padEnd(5, "X").slice(0, 5)}1234F`, document: pdf(`ID card of ${p.fullName}`) },
     });
     await call("POST", `/admin/kyc/${submission.id}/approve`, { token: admin });
     step(`${p.fullName} (${p.role}) signed up, admin approved the ID, wallet whitelisted on-chain`);

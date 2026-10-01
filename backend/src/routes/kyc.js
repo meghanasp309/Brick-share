@@ -34,8 +34,7 @@ router.post("/kyc", requireAuth, requireRole("investor", "owner"), upload.single
     if (req.user.kyc_status === "approved") throw new HttpError(409, "Your KYC is already approved");
     if (req.user.kyc_status === "pending") throw new HttpError(409, "Your KYC is already waiting for review");
     const idType = v.oneOf(req.body, "idType", ["aadhaar", "pan", "passport"]);
-    const idNumber = v.text(req.body, "idNumber", { max: 20 }).replace(/\s/g, "");
-    if (idNumber.length < 4) throw new HttpError(400, "idNumber is too short");
+    const idNumber = v.idNumber(req.body, "idNumber", idType);
 
     const client = await db.pool.connect();
     try {

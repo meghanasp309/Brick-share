@@ -37,4 +37,18 @@ function rupees(body, field, { max }) {
   return paise;
 }
 
-module.exports = { text, positive, oneOf, rupees };
+// The shape of each Indian ID number. The website has the same rules (frontend/src/lib/idFormats.js).
+const ID_FORMATS = {
+  aadhaar: { pattern: /^[2-9][0-9]{11}$/, message: "Aadhaar must be 12 digits and can't start with 0 or 1 (like 2345 6789 0123)" },
+  pan: { pattern: /^[A-Z]{5}[0-9]{4}[A-Z]$/, message: "PAN must be 5 letters, 4 digits, then 1 letter (like ABCDE1234F)" },
+  passport: { pattern: /^[A-Z][0-9]{7}$/, message: "Passport must be 1 letter then 7 digits (like A1234567)" },
+};
+
+/** Returns the ID number cleaned up (no spaces, uppercase), or throws a 400 if it has the wrong shape. */
+function idNumber(body, field, idType) {
+  const value = text(body, field, { max: 20 }).replace(/\s/g, "").toUpperCase();
+  if (!ID_FORMATS[idType].pattern.test(value)) throw new HttpError(400, ID_FORMATS[idType].message);
+  return value;
+}
+
+module.exports = { text, positive, oneOf, rupees, idNumber };
