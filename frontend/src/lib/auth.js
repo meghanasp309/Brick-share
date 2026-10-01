@@ -1,7 +1,7 @@
 "use client";
 // Who is logged in. Wrap the app in <AuthProvider>, then use useAuth().
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { api, getToken, setToken } from "./api";
+import { TOKEN_KEY, api, getToken, setToken } from "./api";
 import { resetSocket } from "./live";
 
 const AuthContext = createContext(null);
@@ -34,6 +34,17 @@ export function AuthProvider({ children }) {
     return () => {
       active = false;
     };
+  }, []);
+
+  // The login is saved in the browser, so all tabs share it. When another tab
+  // logs in, signs up or logs out, reload this tab so it shows that user.
+  // Otherwise it would show one person's name with another person's data.
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === TOKEN_KEY || e.key === null) window.location.reload();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const login = useCallback((token, u) => {

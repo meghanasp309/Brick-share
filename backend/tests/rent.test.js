@@ -279,3 +279,19 @@ test("monthly rent is taken from the owner's wallet and split by shares, once a 
   const list = (await api().get("/rent-schedules").set(auth(owner.token)).expect(200)).body.schedules;
   assert.deepStrictEqual(list.map((x) => [x.propertyId, x.active]), [[property.id, false]]);
 });
+
+test("an owner only sees the rent they paid, never another owner's", async () => {
+  const mine = (await api().get("/rent").set(auth(owner.token)).expect(200)).body.payouts;
+  assert.ok(mine.length > 0);
+
+  // A brand-new owner (KYC not done yet) has paid no rent.
+  const newOwner = await signup("owner", "new-owner@example.com");
+  assert.deepStrictEqual((await api().get("/rent").set(auth(newOwner.token)).expect(200)).body.payouts, []);
+  assert.deepStrictEqual((await api().get("/rent").set(auth(otherOwner.token)).expect(200)).body.payouts, []);
+  await api().get(`/rent/${mine[0].id}`).set(auth(newOwner.token)).expect(404);
+  assert.deepStrictEqual((await api().get("/rent/received").set(auth(newOwner.token)).expect(200)).body.received, []);
+
+  // Admins see every payout.
+  const all = (await api().get("/rent").set(auth(adminToken)).expect(200)).body.payouts;
+  assert.strictEqual(all.length, mine.length);
+});

@@ -2,7 +2,7 @@
 // or throws an Error with the server's message (e.g. "Wrong email or password").
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
-const TOKEN_KEY = "brickshare-token";
+export const TOKEN_KEY = "brickshare-token";
 
 export function getToken() {
   try {
