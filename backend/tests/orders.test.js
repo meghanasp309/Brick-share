@@ -115,6 +115,8 @@ test("buy shares: order, pay, shares arrive on the chain", async () => {
 });
 
 test("can't buy more shares than are left", async () => {
+  // Let one investor buy (almost) everything; the per-investor limit has its own tests.
+  await api().put("/admin/settings").set(auth(adminToken)).send({ maxHoldingPercent: 100 }).expect(200);
   const big = await buy(alice.token, 850).expect(201);
   const res = await buy(alice.token, 100).expect(409);
   assert.match(res.body.error, /Only 50 shares are left/);

@@ -346,6 +346,15 @@ The owner sets a monthly rent once on "My properties" (`PUT /properties/:id/rent
 - For demos: **Pay next month now** (`POST /properties/:id/rent-schedule/pay-now`) pays straight away, or set `RENT_MONTH_SECONDS=120` in `backend/.env` so a "month" lasts 2 minutes.
 - Stop it with `{ "amount": 20000, "active": false }`.
 
+### Max % per investor
+
+So one person can't own or control a whole property, there is a limit on how much of one property any investor can own.
+
+- **Admin** sets it for the whole platform on Admin > Rules (`PUT /admin/settings` with `{ "maxHoldingPercent": 25 }`). It starts at 25%. Anyone can read it at `GET /settings`.
+- **Owner** can pick a lower limit for their own property on "My properties" (`PUT /properties/:id/holding-limit` with `{ "maxHoldingPercent": 10 }`, or `null` to use the platform's). Never higher than the admin's.
+- It is checked on every buy: from the owner and on the market. Shares you hold, plus unpaid orders and open buy orders, all count.
+- The owner's own unsold shares don't count. People who already own more (e.g. the admin lowered the limit) keep their shares, but can't buy more.
+
 ### Try it in PowerShell
 
 As the owner of an approved property that investors already hold shares in:

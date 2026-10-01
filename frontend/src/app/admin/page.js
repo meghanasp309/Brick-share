@@ -1,11 +1,11 @@
 "use client";
-// For BrickShare admins: check IDs (KYC), see users, and fix stuck payments.
+// For BrickShare admins: check IDs (KYC), see users, fix stuck payments, and set platform rules.
 import { useState } from "react";
 import { api, openProtectedFile } from "@/lib/api";
 import { useLoad } from "@/lib/useLoad";
 import { count, date, rupees, shortHash } from "@/lib/format";
 import RequireLogin from "@/components/RequireLogin";
-import { Alert, Badge, Button, Card, Loading, Page, StatusBadge, Table } from "@/components/ui";
+import { Alert, Badge, Button, Card, Field, Input, Loading, Page, StatusBadge, Table } from "@/components/ui";
 
 export default function AdminPage() {
   return (
@@ -15,7 +15,7 @@ export default function AdminPage() {
   );
 }
 
-const TABS = [["kyc", "KYC to check"], ["users", "Users"], ["stuck", "Stuck payments"]];
+const TABS = [["kyc", "KYC to check"], ["users", "Users"], ["stuck", "Stuck payments"], ["rules", "Rules"]];
 
 function Admin() {
   const [tab, setTab] = useState("kyc");
@@ -35,6 +35,7 @@ function Admin() {
       {tab === "kyc" && <KycQueue />}
       {tab === "users" && <Users />}
       {tab === "stuck" && <Stuck />}
+      {tab === "rules" && <Rules />}
     </Page>
   );
 }
@@ -196,5 +197,48 @@ function Stuck() {
         />
       </Card>
     </div>
+  );
+}
+
+// Max % per investor for the whole platform. Owners can only pick a lower limit.
+function Rules() {
+  const { data, error, loading, reload } = useLoad(() => api("/settings"), []);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  async function save(e) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api("/admin/settings", { method: "PUT", body: { maxHoldingPercent: Number(value) } });
+      setMsg({ tone: "success", text: `Saved. One investor can now own at most ${r.maxHoldingPercent}% of any property.` });
+      setValue("");
+      reload();
+    } catch (err) {
+      setMsg({ tone: "error", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) return <Loading />;
+  return (
+    <Card title="Max % per investor">
+      <Alert>{error}</Alert>
+      <p className="mb-4 text-sm">
+        Right now one investor can own at most <span className="font-semibold">{data?.maxHoldingPercent}%</span> of any property.
+        Owners can set a lower limit for their own property, never a higher one.
+      </p>
+      <form onSubmit={save} className="flex flex-wrap items-end gap-3">
+        <Field label="New limit (%)">
+          <Input type="number" min={0.01} max={100} step={0.01} required value={value} onChange={(e) => setValue(e.target.value)} />
+        </Field>
+        <Button type="submit" busy={busy}>Save</Button>
+      </form>
+      <p className="mt-2 text-xs text-muted">People who already own more keep their shares, but can&apos;t buy more.</p>
+      {msg && <div className="mt-3"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
+    </Card>
   );
 }

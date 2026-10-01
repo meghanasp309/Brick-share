@@ -23,10 +23,13 @@ export default function OwnerPage() {
 function Owner() {
   const { user } = useAuth();
   const { data, error, loading, reload } = useLoad(async () => {
-    const [{ properties }, { payouts }, { schedules }, { wallet }] = await Promise.all([
-      api("/properties"), api("/rent"), api("/rent-schedules"), api("/wallet"),
+    const [{ properties }, { payouts }, { schedules }, { wallet }, settings] = await Promise.all([
+      api("/properties"), api("/rent"), api("/rent-schedules"), api("/wallet"), api("/settings"),
     ]);
-    return { properties: properties.filter((p) => p.owner.id === user.id), payouts, schedules, wallet };
+    return {
+      properties: properties.filter((p) => p.owner.id === user.id), payouts, schedules, wallet,
+      platformPercent: settings.maxHoldingPercent,
+    };
   }, [user.id]);
   const [showForm, setShowForm] = useState(false);
 
@@ -60,6 +63,7 @@ function Owner() {
             p={p}
             schedule={data.schedules.find((s) => s.propertyId === p.id)}
             wallet={data.wallet}
+            platformPercent={data.platformPercent}
             onDone={reload}
           />
         ))}
@@ -137,7 +141,7 @@ function NewListing({ onCancel, onDone }) {
   );
 }
 
-function OwnedProperty({ p, schedule, wallet, onDone }) {
+function OwnedProperty({ p, schedule, wallet, platformPercent, onDone }) {
   const [panel, setPanel] = useState(null);
   const approved = p.status === "approved";
   return (
@@ -166,6 +170,7 @@ function OwnedProperty({ p, schedule, wallet, onDone }) {
         <div><span className="text-muted">Listed:</span> {date(p.createdAt)}</div>
       </div>
       {!approved && <p className="mt-3 text-sm text-muted">Waiting for the Land Authority to approve it.</p>}
+      <HoldingLimit p={p} platformPercent={platformPercent} onDone={onDone} />
       {approved && <MonthlyRent p={p} schedule={schedule} wallet={wallet} onDone={onDone} />}
       {panel === "rent" && <PayRent p={p} onDone={() => { setPanel(null); onDone(); }} />}
       {panel === "doc" && <AddDocument p={p} onDone={() => setPanel(null)} />}
@@ -281,6 +286,57 @@ function MonthlyRent({ p, schedule, wallet, onDone }) {
         {" "}and shared out by shares held: someone with 10% of the shares gets 10% of the rent.
       </p>
       {on && schedule.lastError && <div className="mt-2"><Alert>{schedule.lastError}</Alert></div>}
+      {msg && <div className="mt-2"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
+    </div>
+  );
+}
+
+/** Max % per investor: the owner can pick a lower limit than the platform's. */
+function HoldingLimit({ p, platformPercent, onDone }) {
+  const own = p.maxHoldingPercent;
+  const percent = own === null ? platformPercent : Math.min(own, platformPercent);
+  const [value, setValue] = useState(own ?? platformPercent);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  async function save(maxHoldingPercent) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api(`/properties/${p.id}/holding-limit`, { method: "PUT", body: { maxHoldingPercent } });
+      setEditing(false);
+      onDone();
+    } catch (err) {
+      setMsg({ tone: "error", text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm">
+          <span className="font-semibold">Max per investor: </span>
+          {percent}% ({count(Math.floor((p.totalShares * percent) / 100))} shares)
+          <span className="text-muted"> · {own === null ? "the platform's limit" : `your limit (platform allows ${platformPercent}%)`}</span>
+        </div>
+        <div className="flex gap-2">
+          {own !== null && <Button variant="secondary" busy={busy && !editing} onClick={() => save(null)}>Use platform&apos;s</Button>}
+          {!editing && <Button variant="secondary" onClick={() => setEditing(true)}>Change</Button>}
+        </div>
+      </div>
+      {editing && (
+        <form onSubmit={(e) => { e.preventDefault(); save(Number(value)); }} className="mt-3 flex flex-wrap items-end gap-3">
+          <Field label={`Max % one investor can own (up to ${platformPercent}%)`}>
+            <Input type="number" min={0.01} max={platformPercent} step={0.01} required value={value} onChange={(e) => setValue(e.target.value)} />
+          </Field>
+          <Button type="submit" busy={busy}>Save</Button>
+          <Button type="button" variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
+        </form>
+      )}
+      <p className="mt-2 text-xs text-muted">Stops one person from owning or controlling too much of your property.</p>
       {msg && <div className="mt-2"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
     </div>
   );
