@@ -17,6 +17,7 @@ const v = require("../validate");
 const { reservedShares, retryFailedOrders } = require("./orders");
 const trading = require("../trading");
 const rent = require("../rent");
+const holdingLimit = require("../holdingLimit");
 
 const router = express.Router();
 const upload = memoryUploader();
@@ -35,6 +36,8 @@ const publicProperty = (p) => ({
   status: p.status,
   frozen: p.frozen,
   freezeReason: p.freeze_reason,
+  // The owner's own max % per investor (null = the platform's limit is used).
+  maxHoldingPercent: p.max_holding_percent === null ? null : Number(p.max_holding_percent),
   owner: { id: p.owner_id, fullName: p.owner_name },
   approvedAt: p.approved_at,
   createdAt: p.created_at,
@@ -70,7 +73,49 @@ router.get("/properties/:id", async (req, res) => {
   const onChain = await chain.readProperty(p.contract_address, p.owner_wallet);
   // Shares investors can still buy: the owner's shares minus those held for open orders.
   const sharesForSale = Math.max(0, onChain.ownerShares - (await reservedShares(p.id)));
-  res.json({ property: publicProperty(p), onChain, sharesForSale });
+  res.json({ property: publicProperty(p), onChain, sharesForSale, holdingLimit: await holdingLimit.limitFor(p) });
+});
+
+/** Reads a limit in %: more than 0, at most 100, up to 2 decimals. */
+function percentField(body) {
+  const value = Number(body.maxHoldingPercent);
+  if (!Number.isFinite(value) || value <= 0 || value > 100 || Math.abs(value * 100 - Math.round(value * 100)) > 1e-6) {
+    throw new HttpError(400, "maxHoldingPercent must be a number above 0 and at most 100");
+  }
+  return value;
+}
+
+// ---------- Max % per investor ----------
+
+// The platform's limit, e.g. { maxHoldingPercent: 25 }. Anyone can see it.
+router.get("/settings", async (_req, res) => {
+  res.json({ maxHoldingPercent: await holdingLimit.platformPercent() });
+});
+
+// Admin sets the most one investor may own of any property. Body: { maxHoldingPercent }
+router.put("/admin/settings", requireAuth, requireRole("admin"), async (req, res) => {
+  await holdingLimit.setPlatformPercent(percentField(req.body || {}));
+  res.json({ maxHoldingPercent: await holdingLimit.platformPercent() });
+});
+
+// The owner picks a lower limit for their property. Body: { maxHoldingPercent }
+// Send null to go back to the platform's limit.
+router.put("/properties/:id/holding-limit", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  const p = await findProperty(req.params.id);
+  if (req.user.role === "owner" && p.owner_id !== req.user.id) throw new HttpError(404, "Property not found");
+  const body = req.body || {};
+  let percent = null;
+  if (body.maxHoldingPercent !== null && body.maxHoldingPercent !== "") {
+    percent = percentField(body);
+    const platform = await holdingLimit.platformPercent();
+    if (percent > platform) {
+      throw new HttpError(400, `The limit can't be higher than the platform's limit of ${platform}%`);
+    }
+  }
+  await db.query("UPDATE properties SET max_holding_percent = $2 WHERE id = $1", [p.id, percent]);
+  const updated = await findProperty(p.id);
+  await trading.announceStatus(p.id); // the ticker shows the limit
+  res.json({ property: publicProperty(updated), holdingLimit: await holdingLimit.limitFor(updated) });
 });
 
 // Form fields: name, symbol, location, description, totalShares, pricePerShare,

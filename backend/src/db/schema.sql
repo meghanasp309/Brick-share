@@ -237,3 +237,20 @@ CREATE TABLE IF NOT EXISTS rent_schedules (
 ALTER TABLE rent_payouts DROP CONSTRAINT IF EXISTS rent_payouts_payment_mode_check;
 ALTER TABLE rent_payouts ADD CONSTRAINT rent_payouts_payment_mode_check
   CHECK (payment_mode IN ('razorpay', 'mock', 'wallet'));
+
+-- ---------- Max % per investor ----------
+
+-- Settings for the whole platform. There is only ever one row (id = 1).
+-- max_holding_percent: the most any one investor may own of a property,
+-- set by the admin. Stops one person from owning or controlling it all.
+CREATE TABLE IF NOT EXISTS platform_settings (
+  id                  INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  max_holding_percent NUMERIC(5, 2) NOT NULL DEFAULT 25
+                        CHECK (max_holding_percent > 0 AND max_holding_percent <= 100),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO platform_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+-- An owner can pick a lower limit for their own property. NULL = use the admin's.
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS max_holding_percent NUMERIC(5, 2)
+  CHECK (max_holding_percent > 0 AND max_holding_percent <= 100);

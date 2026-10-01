@@ -17,6 +17,7 @@ const db = require("./db");
 const chain = require("./chain");
 const cash = require("./cash");
 const live = require("./live");
+const holdingLimit = require("./holdingLimit");
 const { HttpError } = require("./errors");
 
 // Limits that keep numbers far below where they would lose precision.
@@ -147,6 +148,7 @@ async function placeOrder(user, { propertyId, side, shares, pricePaise }) {
     if (own.length) throw new HttpError(409, "This order would trade with your own order. Cancel that one first");
 
     if (side === "buy") {
+      await holdingLimit.check(client, user, property, shares);
       await cash.lockBalance(client, user.id);
       const available = await cash.availablePaise(client, user.id);
       if (shares * pricePaise > available) {
@@ -351,7 +353,7 @@ async function orderBook(propertyId, depth = 20) {
 /** Price, 24h change, volume and market cap, like the top of a stock page. */
 async function ticker(propertyId) {
   const { rows } = await db.query(
-    `SELECT p.id, p.name, p.symbol, p.total_shares, p.price_per_share, p.frozen,
+    `SELECT p.id, p.name, p.symbol, p.total_shares, p.price_per_share, p.frozen, p.max_holding_percent,
        (SELECT price_paise FROM trades WHERE property_id = p.id AND status <> 'failed'
          ORDER BY id DESC LIMIT 1) AS last_paise,
        (SELECT price_paise FROM trades WHERE property_id = p.id AND status <> 'failed'
@@ -373,6 +375,7 @@ async function ticker(propertyId) {
   );
   const r = rows[0];
   if (!r) throw new HttpError(404, "Property not found");
+  const limit = await holdingLimit.limitFor(r);
   // No trades yet? Use the listing price.
   const listing = Math.round(Number(r.price_per_share) * 100);
   const last = r.last_paise ? Number(r.last_paise) : listing;
@@ -394,6 +397,7 @@ async function ticker(propertyId) {
     bestBid: optional(r.bid_paise),
     bestAsk: optional(r.ask_paise),
     sharesForSale: r.for_sale, // shares other investors are selling right now
+    maxHolding: { percent: limit.percent, shares: limit.maxShares }, // the most one investor may own
   };
 }
 

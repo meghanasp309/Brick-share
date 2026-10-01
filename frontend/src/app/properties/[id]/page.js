@@ -30,7 +30,7 @@ export default function PropertyPage() {
   if (loading) return <Loading />;
   if (error) return <Page><Alert>{error}</Alert></Page>;
 
-  const { property: p, onChain, sharesForSale, market, documents, payouts } = data;
+  const { property: p, onChain, sharesForSale, holdingLimit, market, documents, payouts } = data;
   const approved = p.status === "approved";
   const price = market?.ticker.lastPrice ?? p.pricePerShare;
 
@@ -51,7 +51,11 @@ export default function PropertyPage() {
       <Card className="mb-6">
         <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
           <Stat label="Market price" value={rupees(price)} sub={`Listed at ${rupees(p.pricePerShare)}`} />
-          <Stat label="Total shares" value={count(p.totalShares)} />
+          <Stat
+            label="Total shares"
+            value={count(p.totalShares)}
+            sub={`One investor can own at most ${holdingLimit.percent}% (${count(holdingLimit.maxShares)})`}
+          />
           <Stat label="Left from owner" value={count(sharesForSale)} sub={`at ${rupees(p.pricePerShare)} each`} />
           <Stat label="Property value" value={rupees(price * p.totalShares)} />
         </div>
@@ -81,7 +85,7 @@ export default function PropertyPage() {
 
         <div className="min-w-0 space-y-6">
           {approved && user?.role === "investor" && (
-            <BuyFromOwner p={p} sharesForSale={sharesForSale} user={user} onDone={reload} />
+            <BuyFromOwner p={p} sharesForSale={sharesForSale} holdingLimit={holdingLimit} user={user} onDone={reload} />
           )}
           {approved && <BuyFromInvestors p={p} market={market} />}
           <Card title="On the blockchain">
@@ -134,7 +138,7 @@ function Row({ label, children }) {
   );
 }
 
-function BuyFromOwner({ p, sharesForSale, user, onDone }) {
+function BuyFromOwner({ p, sharesForSale, holdingLimit, user, onDone }) {
   const [shares, setShares] = useState(10);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -169,7 +173,10 @@ function BuyFromOwner({ p, sharesForSale, user, onDone }) {
         </Empty>
       ) : (
         <form onSubmit={buy} className="space-y-4">
-          <Field label="Number of shares" hint={`${count(sharesForSale)} left at ${rupees(p.pricePerShare)} each`}>
+          <Field
+            label="Number of shares"
+            hint={`${count(sharesForSale)} left at ${rupees(p.pricePerShare)} each. One investor can own at most ${count(holdingLimit.maxShares)} (${holdingLimit.percent}%).`}
+          >
             <Input type="number" min={1} max={sharesForSale} step={1} required value={shares} onChange={(e) => setShares(e.target.value)} />
           </Field>
           <div className="flex justify-between text-sm">

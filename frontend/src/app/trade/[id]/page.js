@@ -210,6 +210,7 @@ function OrderForm({ propertyId, ticker, picked, user }) {
   }, [loadMine, propertyId]);
 
   const total = (Number(shares) || 0) * (Number(price) || 0);
+  const maxShares = ticker.maxHolding?.shares; // the most one investor may own
   // Why this order can't be placed right now, in plain words (null = it can).
   const blocked =
     user.kycStatus !== "approved"
@@ -218,7 +219,9 @@ function OrderForm({ propertyId, ticker, picked, user }) {
         ? "This property is frozen, so nobody can buy or sell it now."
         : side === "buy" && wallet && wallet.available < total
           ? `Not enough money. You have ${rupees(wallet.available)} but this order needs ${rupees(total)}.`
-          : side === "sell" && owned < 1
+          : side === "buy" && maxShares !== undefined && owned + (Number(shares) || 0) > maxShares
+            ? `One investor can own at most ${ticker.maxHolding.percent}% of this property (${count(maxShares)} shares). You own ${count(owned)}, so you can buy at most ${count(Math.max(0, maxShares - owned))} more.`
+            : side === "sell" && owned < 1
             ? "You don't own any shares of this property yet, so there is nothing to sell."
             : null;
   const disabled = Boolean(blocked);
@@ -287,6 +290,11 @@ function OrderForm({ propertyId, ticker, picked, user }) {
             {user.kycStatus === "approved" && side === "buy" && wallet && wallet.available < total && (
               <Link href="/wallet" className="underline">Add money to your wallet</Link>
             )}
+          </p>
+        )}
+        {side === "buy" && ticker.maxHolding && !blocked && (
+          <p className="text-xs text-muted">
+            One investor can own at most {ticker.maxHolding.percent}% of this property ({count(maxShares)} shares).
           </p>
         )}
         {side === "buy" && !ticker.bestAsk && !blocked && (

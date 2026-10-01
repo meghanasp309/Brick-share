@@ -12,6 +12,7 @@ const express = require("express");
 const db = require("../db");
 const chain = require("../chain");
 const payments = require("../payments");
+const holdingLimit = require("../holdingLimit");
 const config = require("../config");
 const { HttpError } = require("../errors");
 const { requireAuth, requireRole, requireKyc } = require("../auth");
@@ -206,6 +207,7 @@ router.post("/orders", requireAuth, requireRole("investor"), requireKyc, async (
     if (shares > available) {
       throw new HttpError(409, available > 0 ? `Only ${available} shares are left` : "All shares are sold out");
     }
+    await holdingLimit.check(client, req.user, p, shares);
     const rzpOrderId = await payments.createOrder({ amountPaise, receipt: `bs-${p.ref}-${Date.now()}` });
     const { rows } = await client.query(
       `INSERT INTO orders (user_id, property_id, shares, price_per_share, amount_paise, payment_mode,
